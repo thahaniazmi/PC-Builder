@@ -1,0 +1,196 @@
+{% macro category_icon(category) -%}
+  {%- set c = (category or '')|lower -%}
+  {%- if 'processor' in c or 'cpu' in c -%}CPU
+  {%- elif 'graphics' in c or 'gpu' in c -%}GPU
+  {%- elif 'ram' in c or 'memory' in c -%}RAM
+  {%- elif 'ssd' in c or 'hdd' in c or 'storage' in c -%}SSD
+  {%- elif 'power' in c or 'psu' in c -%}PSU
+  {%- elif 'casing' in c or 'case' in c -%}CASE
+  {%- elif 'monitor' in c -%}LCD
+  {%- elif 'keyboard' in c -%}KEY
+  {%- elif 'mouse' in c or 'mice' in c -%}MSE
+  {%- elif 'cool' in c or 'fan' in c -%}FAN
+  {%- else -%}PC
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro stock_class(availability) -%}
+  {%- set a = (availability or '')|lower -%}
+  {%- if 'out' in a -%}stock-out
+  {%- elif 'pre' in a -%}stock-pre
+  {%- elif 'stock' in a or 'available' in a -%}stock-in
+  {%- else -%}stock-unknown
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro stats_card(icon, label, value, meta="") -%}
+<div class="stat-card">
+  <span class="stat-icon">{{ icon }}</span>
+  <div class="stat-content">
+    <span class="stat-label">{{ label }}</span>
+    <strong>{{ value }}</strong>
+    {% if meta %}<small>{{ meta }}</small>{% endif %}
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro product_image(image_url, name, category, extra_class="") -%}
+{% set has_image = image_url and image_url != '/static/img/placeholder.svg' %}
+<div class="product-image-shell {{ extra_class }}">
+  <div class="product-image-frame {% if not has_image %}no-image{% endif %}" data-image-frame>
+    {% if has_image %}
+    <img src="{{ image_url }}" alt="{{ name }}" loading="lazy" data-product-image onerror="this.closest('[data-image-frame]').classList.add('image-failed'); this.remove();">
+    {% endif %}
+    <div class="product-image-placeholder">
+      <span>{{ category_icon(category) }}</span>
+      <small>Image unavailable</small>
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro price_list(offers, best_offer_id, limit=3, expanded=false) -%}
+{% set preview = offers if expanded else offers[:limit] %}
+<div class="price-list {% if expanded %}expanded{% endif %}">
+  <div class="price-list-head">
+    <strong>Available prices</strong>
+    <span>{{ offers|length }} store{% if offers|length != 1 %}s{% endif %}</span>
+  </div>
+  <div class="price-list-rows">
+    {% for offer in preview %}
+    <div class="price-row {% if offer.id == best_offer_id %}best-price-row{% endif %}">
+      <div class="price-row-main">
+        <span class="price-store">{{ offer.store }}</span>
+        <span class="price-value">{% if offer.price_lkr %}LKR {{ "{:,}".format(offer.price_lkr) }}{% else %}Ask store{% endif %}</span>
+      </div>
+      <div class="price-row-meta">
+        <span class="price-stock {{ stock_class(offer.availability) }}">{{ offer.availability or "Unknown" }}</span>
+        {% if offer.id == best_offer_id and offer.price_lkr %}<span class="price-flag">Best price</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if not expanded and offers|length > limit %}
+  <button class="text-btn" type="button" data-modal-open data-details-id="{{ best_offer_id }}">View all prices</button>
+  {% endif %}
+</div>
+{%- endmacro %}
+
+{% macro product_filters(request, options) -%}
+<form class="filters-panel" method="get">
+  <div class="filters-grid">
+    <label class="field search-field">
+      <span class="field-label">Search</span>
+      <span class="field-icon" aria-hidden="true"></span>
+      <input name="q" placeholder="Search CPUs, GPUs, monitors..." value="{{ request.query_params.get('q','') }}">
+    </label>
+    <label class="field">
+      <span class="field-label">Store</span>
+      <select name="store"><option value="">All stores</option>{% for s in options.stores %}<option value="{{ s }}" {% if request.query_params.get('store')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+    </label>
+    <label class="field field-wide">
+      <span class="field-label">Category</span>
+      <select name="category"><option value="">All categories</option>{% for c in options.categories %}<option value="{{ c }}" {% if request.query_params.get('category')==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">
+      <span class="field-label">Stock</span>
+      <select name="availability"><option value="">Any stock</option>{% for a in options.availability %}<option value="{{ a }}" {% if request.query_params.get('availability')==a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select>
+    </label>
+    <label class="field field-small">
+      <span class="field-label">Min</span>
+      <input name="min_price" placeholder="LKR" value="{{ request.query_params.get('min_price','') }}">
+    </label>
+    <label class="field field-small">
+      <span class="field-label">Max</span>
+      <input name="max_price" placeholder="LKR" value="{{ request.query_params.get('max_price','') }}">
+    </label>
+    <label class="field">
+      <span class="field-label">Sort</span>
+      <select name="sort">
+        {% for key,label in [('recent','Recently updated'),('price_asc','Price low to high'),('price_desc','Price high to low'),('store','Store'),('category','Category')] %}
+        <option value="{{ key }}" {% if request.query_params.get('sort','recent')==key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+  <div class="filters-actions">
+    <label class="toggle-chip"><input type="checkbox" name="fav" value="1" {% if request.query_params.get('fav')=='1' %}checked{% endif %}><span>Favourites only</span></label>
+    <div class="filters-cta">
+      <button class="primary-btn filter-btn">Apply</button>
+      <a class="ghost-btn filter-btn" href="/">Reset</a>
+      <button type="button" class="icon-btn filter-btn" data-view-toggle aria-label="Toggle grid or list view"><span data-view-label>Grid</span></button>
+    </div>
+  </div>
+</form>
+{%- endmacro %}
+
+{% macro product_card(card, favourite_ids) -%}
+<article class="product-card">
+  <div class="product-card-media">
+    {{ product_image(card.image_url, card.name, card.category) }}
+    <button class="fav {% if card.id in favourite_ids %}active{% endif %}" data-fav="{{ card.id }}" aria-label="Toggle favourite">
+      <span>*</span>
+    </button>
+  </div>
+  <div class="product-body">
+    <div class="badge-row">
+      {% for store in card.stores[:2] %}<span class="pill store-pill">{{ store }}</span>{% endfor %}
+      {% if card.stores|length > 2 %}<span class="pill store-pill">+{{ card.stores|length - 2 }}</span>{% endif %}
+      <span class="pill category-pill">{{ category_icon(card.category) }} {{ card.category }}</span>
+    </div>
+    <h3>{{ card.name }}</h3>
+    <span class="stock-badge {{ stock_class(card.stock_status) }}">{{ card.stock_status or "Unknown" }}</span>
+    <div class="price-block">
+      <span class="price-label">Starting price</span>
+      <p class="price">{% if card.best_offer.price_lkr %}LKR {{ "{:,}".format(card.best_offer.price_lkr) }}{% else %}Price not listed{% endif %}</p>
+    </div>
+    {{ price_list(card.offers, card.best_offer.id, 3, false) }}
+    <div class="card-actions">
+      <a class="ghost-btn compact" href="/builds/add-offer?offer_ids={{ card.details.offer_ids }}">Add to build</a>
+      <a class="ghost-btn compact" href="/compare?q={{ card.details.compare_query }}">Compare</a>
+      <button class="primary-link compact" type="button" data-modal-open data-details-id="{{ card.id }}">View details</button>
+    </div>
+  </div>
+</article>
+{%- endmacro %}
+
+{% macro product_details_modal() -%}
+<dialog class="product-modal" data-details-modal>
+  <div class="product-modal-shell">
+    <button class="modal-close" type="button" data-modal-close aria-label="Close details">+</button>
+    <div class="product-modal-grid">
+      <div class="product-modal-media">
+        <div data-modal-image></div>
+      </div>
+      <div class="product-modal-body">
+        <div class="badge-row modal-badges">
+          <span class="pill category-pill" data-modal-category></span>
+          <span class="stock-badge" data-modal-stock></span>
+        </div>
+        <h2 data-modal-name></h2>
+        <div class="modal-section">
+          <h3>All store prices</h3>
+          <div data-modal-prices></div>
+        </div>
+        <div class="modal-section" data-modal-features-section hidden>
+          <h3>Features</h3>
+          <ul class="feature-list" data-modal-features></ul>
+        </div>
+        <div class="modal-section" data-modal-description-section hidden>
+          <h3>Description</h3>
+          <p class="modal-copy" data-modal-description></p>
+        </div>
+        <div class="modal-section" data-modal-notes-section hidden>
+          <h3>Notes</h3>
+          <div class="notes-list" data-modal-notes></div>
+        </div>
+        <div class="card-actions modal-actions">
+          <a class="ghost-btn compact" href="#" data-modal-build>Add to build</a>
+          <a class="ghost-btn compact" href="#" data-modal-compare>Compare</a>
+          <button class="primary-link compact" type="button" data-modal-fav data-fav="">Favourite</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>
+{%- endmacro %}

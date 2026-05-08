@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Choose store offer</p>
+    <h1>Add to Build</h1>
+    <p class="hero-copy">Select the exact store offer. Price comparison is shown, but the app will not auto-select the cheapest option.</p>
+  </div>
+  <a class="hero-action" href="/">Back to catalogue</a>
+</section>
+
+{% if warning %}
+<section class="panel warning-panel"><p class="warning">{{ warning }}</p></section>
+{% endif %}
+
+<section class="panel">
+  <h2>Available store prices</h2>
+  <div class="offer-list expanded">
+    {% for offer in offers %}
+    <div class="offer-row {% if loop.first and offer.price_lkr %}best-offer{% endif %}">
+      <span>{{ offer.store }}</span>
+      <b>{% if offer.price_lkr %}LKR {{ "{:,}".format(offer.price_lkr) }}{% else %}Ask store{% endif %}</b>
+      <em>{{ offer.availability or "Unknown" }}</em>
+      {% if offer.previous_price_lkr %}<em class="discount-note">Discount applied: was LKR {{ "{:,}".format(offer.previous_price_lkr) }}{% if offer.discount_label %} - {{ offer.discount_label }}{% endif %}</em>{% endif %}
+      {% if loop.first and offer.price_lkr %}<small>Best Price</small>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+<form class="panel build-form" method="post" action="/builds/add-offer">
+  <input type="hidden" name="offer_ids" value="{{ offer_ids }}">
+
+  <label class="field wide">
+    <span>Build mode</span>
+    <select name="selection_method" data-selection-method required>
+      <option value="manual">Manual Store Mode</option>
+      <option value="preferred_store">Preferred Store Mode</option>
+      <option value="compare_only">Compare Only Mode</option>
+    </select>
+  </label>
+
+  <label class="field wide" data-manual-offer>
+    <span>Manual store offer</span>
+    <select name="offer_id">
+      <option value="">Choose a store offer</option>
+      {% for offer in offers %}
+      <option value="{{ offer.id }}">{{ offer.store }} - {% if offer.price_lkr %}LKR {{ "{:,}".format(offer.price_lkr) }}{% else %}Ask store{% endif %}{% if offer.previous_price_lkr %} (discount applied, was LKR {{ "{:,}".format(offer.previous_price_lkr) }}){% endif %} - {{ offer.availability or "Unknown" }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field wide" data-preferred-store>
+    <span>Preferred store</span>
+    <select name="preferred_store">
+      <option value="">Choose preferred store</option>
+      {% for store in stores %}<option value="{{ store }}">{{ store }}</option>{% endfor %}
+    </select>
+  </label>
+
+  <label class="field wide">
+    <span>Existing build</span>
+    <select name="build_id">
+      <option value="">Create new build instead</option>
+      {% for build in builds %}
+      <option value="{{ build.id }}">{{ build.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <label class="field wide">
+    <span>New build name</span>
+    <input name="new_build_name" placeholder="Only used if no existing build is selected">
+  </label>
+
+  <button class="primary-btn">Add selected offer</button>
+</form>
+{% endblock %}

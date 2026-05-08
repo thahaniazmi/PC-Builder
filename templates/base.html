@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "PC Builder" }}</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">PC</span>
+      <span>Builder</span>
+    </a>
+    <button class="nav-toggle" type="button" data-nav-toggle aria-label="Toggle navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <nav data-nav>
+      <a class="{% if request.url.path == '/' %}active{% endif %}" href="/">Catalogue</a>
+      <a class="{% if request.url.path.startswith('/favourites') %}active{% endif %}" href="/favourites">Favourites</a>
+      <a class="{% if request.url.path.startswith('/builds') %}active{% endif %}" href="/builds">Builds</a>
+      <a class="{% if request.url.path.startswith('/compare') %}active{% endif %}" href="/compare">Compare</a>
+      <a class="{% if request.url.path.startswith('/suggestions') %}active{% endif %}" href="/suggestions">Best Value</a>
+      <a class="{% if request.url.path.startswith('/admin') %}active{% endif %}" href="/admin">Admin</a>
+    </nav>
+  </header>
+  <div class="bg-grid"></div>
+  <main class="shell">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

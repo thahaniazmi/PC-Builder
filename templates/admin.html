@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Data operations</p>
+    <h1>Admin</h1>
+    <p class="hero-copy">Import spreadsheets or refresh modular store providers.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Import CSV or Excel</h2>
+  <form method="post" action="/admin/import" enctype="multipart/form-data" class="inline">
+    <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
+    <button class="primary-btn">Import</button>
+  </form>
+</section>
+
+<section class="panel">
+  <h2>Refresh Store Providers</h2>
+  <div class="inline">
+    {% for provider in providers %}
+    <form method="post" action="/admin/refresh/{{ provider }}">
+      <button class="ghost-btn">Refresh {{ provider }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  <p class="muted">Scrapers are conservative and selectors may need updates when store pages change.</p>
+</section>
+
+<section class="panel">
+  <h2>Duplicate Review</h2>
+  <p class="muted">Review uncertain matches before deciding whether two vendor listings are the same product, separate products, or a different variation.</p>
+  <a class="primary-btn" href="/admin/duplicates">Open duplicate review</a>
+</section>
+{% endblock %}

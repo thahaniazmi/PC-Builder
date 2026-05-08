@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% import "components.html" as ui %}
+{% block content %}
+<section class="page-hero">
+  <div class="hero-copy-block">
+    <p class="eyebrow">PC parts marketplace</p>
+    <h1>Catalogue</h1>
+    <p class="hero-copy">Compare live vendor listings, stock, and grouped prices across local stores without losing the quick scan.</p>
+  </div>
+  <a class="hero-action" href="/suggestions">Best value picks</a>
+</section>
+
+<section class="dashboard kpi-grid">
+  {{ ui.stats_card("PC", "Products", "{:,}".format(stats.products), "{:,}".format(stats.offers) ~ " store offers") }}
+  {{ ui.stats_card("LK", "Stores", stats.stores) }}
+  {{ ui.stats_card("FV", "Favourites", stats.favourites) }}
+  {{ ui.stats_card("BD", "Builds", stats.builds) }}
+</section>
+
+{{ ui.product_filters(request, options) }}
+
+<section class="product-grid" data-products>
+  {% for card in product_cards %}
+  {{ ui.product_card(card, favourite_ids) }}
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">PC</div>
+    <h2>No parts found</h2>
+    <p>Try a broader search, remove a price range, or reset the filters.</p>
+    <a class="primary-btn" href="/">Reset filters</a>
+  </div>
+  {% endfor %}
+</section>
+
+{{ ui.product_details_modal() }}
+{% endblock %}

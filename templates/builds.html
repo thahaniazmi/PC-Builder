@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Build planning</p>
+    <h1>Builds</h1>
+    <p class="hero-copy">Save multiple PC builds, mix vendors, track totals, and export parts lists.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Create build</h2>
+  <form class="inline" method="post" action="/builds">
+    <input name="name" placeholder="Build name" required>
+    <input name="budget_lkr" placeholder="Budget LKR">
+    <button class="primary-btn">Create build</button>
+  </form>
+</section>
+
+<section class="list">
+  {% for b in builds %}
+  {% set summary = summaries[b.id] %}
+  <article class="build-row">
+    <div>
+      <h3>{{ "* " if b.favourite else "" }}{{ b.name }}</h3>
+      <p class="muted">{{ b.items|length }} items - LKR {{ "{:,}".format(summary.total) }} - {{ summary.stores_used }} store{{ "" if summary.stores_used == 1 else "s" }} used{% if b.budget_lkr %} - Budget LKR {{ "{:,}".format(b.budget_lkr) }}{% endif %}</p>
+      {% if summary.multi_store %}<p class="warning">This build uses multiple stores. You may need to place separate orders.</p>{% endif %}
+      <div class="store-breakdown">
+        {% for store,total in summary.store_totals.items() %}<span class="pill store-pill">{{ store }}: LKR {{ "{:,}".format(total) }}</span>{% endfor %}
+      </div>
+      {% for row in summary.rows %}
+      {% set item = row.item %}
+      <p>{{ item.category }}: {{ item.product.name }} <span class="muted">({{ item.selected_store or item.product.store }} - selected LKR {{ "{:,}".format(item.selected_price or item.product.price_lkr or 0) }}{% if item.selected_price and item.product.price_lkr and item.selected_price != item.product.price_lkr %} / current LKR {{ "{:,}".format(item.product.price_lkr) }}{% endif %})</span></p>
+      {% for cheaper in row.cheaper %}<p class="muted">Cheaper option available from {{ cheaper.store }}: LKR {{ "{:,}".format(cheaper.price_lkr) }}</p>{% endfor %}
+      <div class="offer-list compact-offers">
+        {% for offer in row.offers %}
+        <div class="offer-row {% if offer.id == (item.offer_id or item.product_id) %}best-offer{% endif %}">
+          <span>{{ offer.store }}</span>
+          <b>{% if offer.price_lkr %}LKR {{ "{:,}".format(offer.price_lkr) }}{% else %}Ask store{% endif %}</b>
+          <em>{{ offer.availability or "Unknown" }}</em>
+          {% if offer.id == (item.offer_id or item.product_id) %}<small>Selected</small>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% if item.product.previous_price_lkr %}<p class="discount-line"><span>Discount applied</span><del>LKR {{ "{:,}".format(item.product.previous_price_lkr) }}</del>{% if item.product.discount_label %}<b>{{ item.product.discount_label }}</b>{% endif %}</p>{% endif %}
+      {% endfor %}
+    </div>
+    <div class="actions vertical">
+      <a class="ghost-btn compact" href="/builds/{{ b.id }}/edit">Edit</a>
+      <a class="ghost-btn compact" href="/builds/{{ b.id }}/export.csv">CSV</a>
+      <a class="ghost-btn compact" href="/builds/{{ b.id }}/export.xlsx">Excel</a>
+      <form method="post" action="/builds/{{ b.id }}/delete"><button class="danger compact">Delete</button></form>
+    </div>
+  </article>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">BD</div>
+    <h2>No saved builds yet</h2>
+    <p>Create a build and select parts from each core category.</p>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

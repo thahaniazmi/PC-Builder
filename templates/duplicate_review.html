@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Admin review</p>
+    <h1>Duplicate Review</h1>
+    <p class="hero-copy">Review uncertain cross-store matches. Variations like Ti, X, Pro, capacity, VRAM, tray, or boxed should stay separate.</p>
+  </div>
+  <a class="hero-action" href="/admin">Back to admin</a>
+</section>
+
+<form class="filters filter-bar">
+  <label class="field search-field">
+    <span class="field-icon">S</span>
+    <input name="q" value="{{ q }}" placeholder="Search model family">
+  </label>
+  <button class="primary-btn">Find candidates</button>
+  <a class="ghost-btn" href="/admin/duplicates">Reset</a>
+</form>
+
+<section class="list">
+  {% for item in candidates %}
+  <article class="compare-row">
+    {% for p in [item.left, item.right] %}
+    <div>
+      <h3>{{ p.name }}</h3>
+      <p class="muted">{{ p.store }} - {{ p.category }}</p>
+      <p class="price">{% if p.price_lkr %}LKR {{ "{:,}".format(p.price_lkr) }}{% else %}Ask store{% endif %}</p>
+      <p>{{ p.availability or "Unknown" }}</p>
+    </div>
+    {% endfor %}
+    <div class="review-actions">
+      <span class="score">{{ item.score }}% similar</span>
+      {% for decision,label in [('group','Group same'),('separate','Keep separate'),('variation','Different variation')] %}
+      <form method="post" action="/admin/duplicates">
+        <input type="hidden" name="product_a_id" value="{{ item.left.id }}">
+        <input type="hidden" name="product_b_id" value="{{ item.right.id }}">
+        <input type="hidden" name="decision" value="{{ decision }}">
+        <button class="{% if decision == 'group' %}primary-btn{% else %}ghost-btn{% endif %} compact">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </article>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">DR</div>
+    <h2>No uncertain duplicates</h2>
+    <p>Try searching for a specific model family if you want to review a narrower set.</p>
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

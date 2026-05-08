@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Build editor</p>
+    <h1>Edit Build</h1>
+    <p class="hero-copy">Choose the exact store offer for each category. The selected store and price are saved with the build.</p>
+  </div>
+  <a class="hero-action" href="/builds">Back to builds</a>
+</section>
+
+<form class="panel build-form" method="post">
+  <input name="name" value="{{ build.name }}" required>
+  <input name="budget_lkr" value="{{ build.budget_lkr or '' }}" placeholder="Budget LKR">
+  <label class="toggle-chip"><input type="checkbox" name="favourite" {% if build.favourite %}checked{% endif %}><span>Favourite build</span></label>
+  <label class="field wide">
+    <span>Build mode</span>
+    <select name="selection_mode">
+      <option value="manual" {% if build.selection_mode == 'manual' %}selected{% endif %}>Manual Store Mode</option>
+      <option value="preferred_store" {% if build.selection_mode == 'preferred_store' %}selected{% endif %}>Preferred Store Mode</option>
+      <option value="compare_only" {% if build.selection_mode == 'compare_only' %}selected{% endif %}>Compare Only Mode</option>
+    </select>
+  </label>
+  <label class="field wide">
+    <span>Preferred store</span>
+    <select name="preferred_store">
+      <option value="">No preferred store</option>
+      {% for store in stores %}<option value="{{ store }}" {% if build.preferred_store == store %}selected{% endif %}>{{ store }}</option>{% endfor %}
+    </select>
+  </label>
+  {% for category in categories %}
+  <label class="field wide">
+    <span>{{ category }}</span>
+    <select name="cat__{{ category }}">
+      <option value="">None selected</option>
+      {% for p in products_by_category[category] %}
+      <option value="{{ p.id }}" {% if selected.get(category)==p.id %}selected{% endif %}>{{ p.name }} - {{ p.store }} - LKR {{ "{:,}".format(p.price_lkr or 0) }} - {{ p.availability }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <button class="primary-btn">Save build</button>
+</form>
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "components.html" as ui %}
+{% block content %}
+<section class="page-hero">
+  <div>
+    <p class="eyebrow">Budget intelligence</p>
+    <h1>Best Value</h1>
+    <p class="hero-copy">Quick lowest-price picks by category and a budget-aware starter build.</p>
+  </div>
+</section>
+
+<form class="filters filter-bar">
+  <label class="field price-field">
+    <span>Budget</span>
+    <input type="number" name="budget" value="{{ budget }}">
+  </label>
+  <button class="primary-btn">Suggest build</button>
+</form>
+
+<section class="panel">
+  <h2>Cheapest Available Build</h2>
+  <p class="price">LKR {{ "{:,}".format(build.total) }} - {{ "Within budget" if build.within_budget else "Over budget" }}</p>
+  {% for p in build.parts %}<p>{{ p.category }}: {{ p.name }} <span class="muted">{{ p.store }} - LKR {{ "{:,}".format(p.price_lkr or 0) }}</span></p>{% endfor %}
+  {% for warning in build.warnings %}<p class="warning">{{ warning }}</p>{% endfor %}
+</section>
+
+<section class="product-grid">
+  {% for p in best_value %}
+  <article class="product-card compact">
+    {% set has_image = p.image_url and p.image_url != '/static/img/placeholder.svg' %}
+    <div class="product-media {% if not has_image %}no-image{% endif %}">
+      {% if has_image %}
+      <img src="{{ p.image_url }}" onerror="this.closest('.product-media').classList.add('image-failed'); this.remove();" alt="{{ p.name }}">
+      {% else %}
+      <div class="component-placeholder"><span>{{ ui.category_icon(p.category) }}</span><small>Image unavailable</small></div>
+      {% endif %}
+    </div>
+    <div class="product-body">
+      <span class="pill category-pill">{{ ui.category_icon(p.category) }} {{ p.category }}</span>
+      <h3>{{ p.name }}</h3>
+      <p class="muted">{{ p.store }}</p>
+      <p class="price">LKR {{ "{:,}".format(p.price_lkr or 0) }}</p>
+    </div>
+  </article>
+  {% endfor %}
+</section>
+{% endblock %}
