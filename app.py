@@ -1284,13 +1284,21 @@ def refresh_provider(provider_name: str, request: Request, db: Annotated[Session
     if not provider_cls:
         raise HTTPException(404)
     try:
-        count = upsert_products(db, provider_cls().iter_products(limit=300), price_stock_only=True)
+        provider = provider_cls()
+        existing = db.scalar(select(func.count(Product.id)).where(Product.store == provider.store_name)) or 0
+        price_stock_only = existing > 0 and provider.store_name != "MDComputers"
+        limit = None if provider.store_name == "MDComputers" else 300
+        count = upsert_products(db, provider.iter_products(limit=limit), price_stock_only=price_stock_only)
         query = urlencode(
             {
                 "kind": "refresh",
                 "subject": provider_name,
                 "state": "success",
-                "message": f"Updated price and stock for {count} existing products from {provider_cls.store_name}.",
+                "message": (
+                    f"Imported {count} products from {provider.store_name}."
+                    if not price_stock_only
+                    else f"Updated price and stock for {count} existing products from {provider.store_name}."
+                ),
             }
         )
     except Exception as exc:

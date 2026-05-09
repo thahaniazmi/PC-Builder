@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Box,
-  CheckCircle2,
   Cpu,
   Download,
   ExternalLink,
@@ -17,6 +16,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  SlidersHorizontal,
   Trash2,
   Settings,
   ShoppingCart,
@@ -24,9 +24,11 @@ import {
   Star,
   Store,
   Table2,
+  TriangleAlert,
   Zap
 } from "lucide-react";
 import "./styles.css";
+import placeholderImage from "./placeholder.svg";
 
 const money = new Intl.NumberFormat("en-LK", {
   style: "currency",
@@ -204,6 +206,168 @@ function api(path, options) {
   });
 }
 
+const knownBrands = [
+  "ASUS", "MSI", "Gigabyte", "ZOTAC", "Palit", "Sapphire", "PowerColor", "GALAX",
+  "Corsair", "Samsung", "WD", "Western Digital", "Kingston", "Lexar", "Crucial", "TeamGroup",
+  "G.Skill", "ADATA", "Seagate", "Thermaltake", "Cooler Master", "Antec", "FSP", "Seasonic",
+  "LG", "Dell", "Acer", "AOC", "BenQ", "ViewSonic", "Philips", "Lenovo", "HP", "Razer",
+  "Logitech", "HyperX", "Redragon", "Dahua", "KOORUI", "Arctic", "NZXT", "Montech", "Lian Li"
+];
+
+function normalizedText(value) {
+  return String(value || "").toLowerCase();
+}
+
+function detectBrand(name) {
+  const text = normalizedText(name);
+  const found = knownBrands.find((brand) => text.includes(brand.toLowerCase()));
+  return found || "Other";
+}
+
+function detectMonitorSpecs(name) {
+  const text = normalizedText(name);
+  const refreshRate = Number(text.match(/\b(\d{2,3})\s*hz\b/)?.[1] || 0) || null;
+  const size = Number(text.match(/\b(\d{2}(?:\.\d)?)\s*(?:\"|inch|inches)\b/)?.[1] || 0) || null;
+  const panel = text.match(/\b(oled|ips|va|tn|mini[-\s]?led|qled)\b/i)?.[1]?.toUpperCase() || "";
+  const resolution = text.includes("3840x2160") || text.includes("4k") ? "4K" :
+    text.includes("2560x1440") || text.includes("1440p") || text.includes("qhd") ? "1440p" :
+      text.includes("1920x1080") || text.includes("1080p") || text.includes("fhd") ? "1080p" : "";
+  return { refreshRate, size, panel, resolution };
+}
+
+function detectCommonSpecs(category, name) {
+  const text = normalizedText(name);
+  const brand = detectBrand(name);
+  const specs = { brand };
+
+  if (category === "Processors / CPUs") {
+    specs.series = text.match(/\b(ryzen\s+[3579]|core\s+i[3579]|core ultra\s+[579])\b/i)?.[1]?.toUpperCase() || "";
+  } else if (category === "Graphics Cards / GPUs") {
+    specs.vram = Number(text.match(/\b(\d{1,2})\s*gb\b/)?.[1] || 0) || null;
+    specs.chipset = text.match(/\b(rtx\s*\d{4}(?:\s*ti|\s*super|\s*ti\s*super)?|gtx\s*\d{4}(?:\s*ti)?|rx\s*\d{4}(?:\s*xtx|\s*xt|\s*gre)?|arc\s*[ab]\d{3,4})\b/i)?.[1]?.toUpperCase().replace(/\s+/g, " ") || "";
+  } else if (category === "RAM") {
+    specs.generation = text.match(/\b(ddr[45])\b/i)?.[1]?.toUpperCase() || "";
+    specs.speed = Number(text.match(/\b(\d{4,5})\s*(?:mhz|mt\/s)\b/i)?.[1] || 0) || null;
+    specs.capacity = Number(text.match(/\b(\d{1,3})\s*gb\b/i)?.[1] || 0) || null;
+  } else if (category === "Motherboards") {
+    specs.chipset = text.match(/\b(a\d{3}|b\d{3}|h\d{3}|z\d{3}|x\d{3})\b/i)?.[1]?.toUpperCase() || "";
+    specs.formFactor = text.match(/\b(e-?atx|micro\s*atx|m-?atx|mini\s*itx|itx|atx)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, " ") || "";
+  } else if (category === "SSDs / HDDs") {
+    specs.type = text.includes("nvme") || text.includes("m.2") ? "NVMe" : text.includes("ssd") ? "SSD" : text.includes("hdd") || text.includes("hard disk") ? "HDD" : "";
+    specs.capacity = text.match(/\b(\d+(?:\.\d+)?)\s*(tb|gb)\b/i)?.[0]?.toUpperCase().replace(/\s+/g, "") || "";
+  } else if (category === "Power Supplies") {
+    specs.wattage = Number(text.match(/\b(\d{3,4})\s*w\b/i)?.[1] || 0) || null;
+    specs.rating = text.match(/\b(80\s*plus\s*(?:bronze|silver|gold|platinum|titanium)|bronze|silver|gold|platinum|titanium)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, " ") || "";
+  } else if (category === "Monitors") {
+    Object.assign(specs, detectMonitorSpecs(name));
+  }
+
+  return specs;
+}
+
+function groupFacetData(group) {
+  const sources = [group.name, group.bestOffer?.name, ...group.offers.map((offer) => offer.name)].filter(Boolean);
+  const joined = sources.join(" ");
+  return {
+    ...detectCommonSpecs(group.category, joined),
+    stockState: group.inStockCount > 0 ? "in" : "out"
+  };
+}
+
+function compareBySelectedSort(a, b, sort) {
+  if (sort === "price-desc") return (b.minPrice ?? -1) - (a.minPrice ?? -1);
+  if (sort === "category-az") return a.category.localeCompare(b.category) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+  if (sort === "store") return (a.bestOffer?.store || "").localeCompare(b.bestOffer?.store || "") || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+  if (sort === "refresh-desc") return (b._facet?.refreshRate ?? -1) - (a._facet?.refreshRate ?? -1) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+  if (sort === "refresh-asc") return (a._facet?.refreshRate ?? 999999999) - (b._facet?.refreshRate ?? 999999999) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+  return (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+}
+
+function facetDefinitionsForCategory(category) {
+  if (category === "Monitors") {
+    return [
+      { key: "brand", label: "Brand" },
+      { key: "resolution", label: "Resolution" },
+      { key: "refreshRate", label: "Refresh rate" },
+      { key: "panel", label: "Panel" },
+      { key: "size", label: "Size" }
+    ];
+  }
+  if (category === "Graphics Cards / GPUs") return [{ key: "brand", label: "Brand" }, { key: "chipset", label: "GPU" }, { key: "vram", label: "VRAM" }];
+  if (category === "RAM") return [{ key: "brand", label: "Brand" }, { key: "generation", label: "Generation" }, { key: "speed", label: "Speed" }, { key: "capacity", label: "Capacity" }];
+  if (category === "Processors / CPUs") return [{ key: "brand", label: "Brand" }, { key: "series", label: "Series" }];
+  if (category === "Motherboards") return [{ key: "brand", label: "Brand" }, { key: "chipset", label: "Chipset" }, { key: "formFactor", label: "Form factor" }];
+  if (category === "SSDs / HDDs") return [{ key: "brand", label: "Brand" }, { key: "type", label: "Type" }, { key: "capacity", label: "Capacity" }];
+  if (category === "Power Supplies") return [{ key: "brand", label: "Brand" }, { key: "wattage", label: "Wattage" }, { key: "rating", label: "Efficiency" }];
+  return [{ key: "brand", label: "Brand" }];
+}
+
+function SafeImage({ src, alt, className = "", fit = "contain" }) {
+  const [currentSrc, setCurrentSrc] = useState(src || placeholderImage);
+
+  useEffect(() => {
+    setCurrentSrc(src || placeholderImage);
+  }, [src]);
+
+  return (
+    <img
+      className={`${className} ${fit === "cover" ? "object-cover" : "object-contain"}`}
+      src={currentSrc || placeholderImage}
+      alt={alt}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setCurrentSrc(placeholderImage)}
+    />
+  );
+}
+
+function extractBuildSpecsClient(product) {
+  const text = normalizedText(product?.name);
+  const category = product?.category || "";
+  return {
+    category,
+    socket: text.match(/\b(am5|am4|lga\s*1700|lga\s*1851|lga\s*1200)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, "") || "",
+    ramGeneration: text.match(/\b(ddr[45])\b/i)?.[1]?.toUpperCase() || "",
+    formFactor: text.match(/\b(e-?atx|micro\s*atx|m-?atx|mini\s*itx|itx|atx)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, "") || "",
+    motherboardChipset: text.match(/\b(a\d{3}|b\d{3}|h\d{3}|z\d{3}|x\d{3})\b/i)?.[1]?.toUpperCase() || "",
+    psuWattage: Number(text.match(/\b(\d{3,4})\s*w\b/i)?.[1] || 0) || null,
+    estimatedGpuDraw: /\brtx\s*5090\b/.test(text) ? 575 : /\brtx\s*5080\b/.test(text) ? 360 : /\brtx\s*5070\b/.test(text) ? 250 : /\brtx\s*40|rx\s*79/i.test(text) ? 300 : /\brtx|gtx|rx\b/i.test(text) ? 180 : 0,
+    estimatedCpuDraw: /\bryzen\s*9|core\s*i9|core ultra 9\b/.test(text) ? 170 : /\bryzen\s*7|core\s*i7|core ultra 7\b/.test(text) ? 125 : /\bryzen\s*5|core\s*i5|core ultra 5\b/.test(text) ? 95 : /\bryzen|core\b/.test(text) ? 65 : 0
+  };
+}
+
+function buildCompatibilityWarnings(rows) {
+  const specs = rows.map((row) => extractBuildSpecsClient(row.product));
+  const byCategory = Object.fromEntries(specs.map((item) => [item.category, item]));
+  const warnings = [];
+  const cpu = byCategory["Processors / CPUs"];
+  const motherboard = byCategory.Motherboards;
+  const ram = byCategory.RAM;
+  const psu = byCategory["Power Supplies"];
+  const gpu = byCategory["Graphics Cards / GPUs"];
+  const casing = byCategory.Casing;
+  const formOrder = { MINIITX: 1, ITX: 1, MATX: 2, MICROATX: 2, ATX: 3, EATX: 4 };
+
+  if (cpu && motherboard) {
+    if (cpu.socket && motherboard.socket && cpu.socket !== motherboard.socket) warnings.push("CPU and motherboard sockets do not match.");
+    if (!motherboard.socket && cpu.socket && motherboard.motherboardChipset) {
+      const supported = cpu.socket === "AM5" ? /^(A6|B6|B8|X6|X8)/.test(motherboard.motherboardChipset)
+        : cpu.socket === "AM4" ? /^(A3|A5|B3|B4|B5|X3|X4|X5)/.test(motherboard.motherboardChipset)
+          : cpu.socket === "LGA1700" ? /^(H6|B6|B7|Z6|Z7)/.test(motherboard.motherboardChipset)
+            : cpu.socket === "LGA1851" ? /^(B8|Z8|H8)/.test(motherboard.motherboardChipset)
+              : true;
+      if (!supported) warnings.push("Motherboard chipset may not support the selected CPU platform.");
+    }
+  }
+  if (ram && motherboard && ram.ramGeneration && motherboard.ramGeneration && ram.ramGeneration !== motherboard.ramGeneration) warnings.push("RAM generation may not match the motherboard.");
+  if (casing && motherboard && casing.formFactor && motherboard.formFactor && (formOrder[casing.formFactor] || 0) < (formOrder[motherboard.formFactor] || 0)) warnings.push("Case size may be too small for the selected motherboard.");
+  if (psu && (cpu || gpu)) {
+    const required = (cpu?.estimatedCpuDraw || 0) + (gpu?.estimatedGpuDraw || 0) + 180;
+    if (psu.psuWattage && required && psu.psuWattage < required) warnings.push("PSU wattage may be too low for the current CPU and GPU.");
+  }
+  return warnings;
+}
+
 function App() {
   const [page, setPage] = useState("parts");
   const [meta, setMeta] = useState(null);
@@ -223,7 +387,29 @@ function App() {
   const [buildName, setBuildName] = useState("");
   const [savingBuild, setSavingBuild] = useState(false);
   const [deletingBuildIds, setDeletingBuildIds] = useState(new Set());
-  const [filters, setFilters] = useState({ search: "", category: "", store: "", stock: "", sort: "price-asc" });
+  const [offerPickerGroup, setOfferPickerGroup] = useState(null);
+  const [filters, setFilters] = useState({ search: "", category: "", store: "" });
+  const [catalogueFilters, setCatalogueFilters] = useState({
+    stock: "",
+    sort: "price-asc",
+    priceMin: 0,
+    priceMax: 0,
+    brand: [],
+    resolution: [],
+    refreshRate: [],
+    panel: [],
+    size: [],
+    chipset: [],
+    vram: [],
+    generation: [],
+    speed: [],
+    capacity: [],
+    series: [],
+    formFactor: [],
+    type: [],
+    wattage: [],
+    rating: []
+  });
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -264,6 +450,31 @@ function App() {
   }, [filters]);
 
   useEffect(() => {
+    setCatalogueFilters((current) => ({
+      ...current,
+      stock: "",
+      sort: filters.category === "Monitors" ? "refresh-desc" : "price-asc",
+      priceMin: 0,
+      priceMax: 0,
+      brand: [],
+      resolution: [],
+      refreshRate: [],
+      panel: [],
+      size: [],
+      chipset: [],
+      vram: [],
+      generation: [],
+      speed: [],
+      capacity: [],
+      series: [],
+      formFactor: [],
+      type: [],
+      wattage: [],
+      rating: []
+    }));
+  }, [filters.category]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       const params = new URLSearchParams({ budget: String(budget) });
       if (preferredStore) params.set("store", preferredStore);
@@ -296,22 +507,54 @@ function App() {
     }));
   }, [suggestion, manualSelections, removedCategories, quantities]);
 
-  const sortedProducts = useMemo(() => {
-    const categoryRank = new Map((meta?.categories || []).map((category, index) => [category.name, index]));
-    const hasFavourite = (group) => group.offers?.some((offer) => favouriteIds.has(offer.id));
-    const sorted = [...products];
-    sorted.sort((a, b) => {
-      if (filters.sort === "price-desc") return (b.minPrice ?? -1) - (a.minPrice ?? -1);
-      if (filters.sort === "category-az") return a.category.localeCompare(b.category) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
-      if (filters.sort === "category-order") {
-        return (categoryRank.get(a.category) ?? 999) - (categoryRank.get(b.category) ?? 999) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+  const catalogueGroups = useMemo(() => {
+    return products.map((group) => ({ ...group, _facet: groupFacetData(group) }));
+  }, [products]);
+
+  const priceBounds = useMemo(() => {
+    const prices = catalogueGroups.map((group) => group.minPrice).filter((value) => Number.isFinite(value));
+    return {
+      min: prices.length ? Math.min(...prices) : 0,
+      max: prices.length ? Math.max(...prices) : 0
+    };
+  }, [catalogueGroups]);
+
+  const sidebarDefinitions = useMemo(() => facetDefinitionsForCategory(filters.category), [filters.category]);
+
+  const sidebarOptions = useMemo(() => {
+    const options = {};
+    for (const definition of sidebarDefinitions) {
+      options[definition.key] = [...new Set(catalogueGroups.map((group) => group._facet?.[definition.key]).filter(Boolean))]
+        .sort((left, right) => {
+          if (typeof left === "number" && typeof right === "number") return left - right;
+          return String(left).localeCompare(String(right), undefined, { numeric: true });
+        });
+    }
+    return options;
+  }, [catalogueGroups, sidebarDefinitions]);
+
+  const visibleProducts = useMemo(() => {
+    const minActivePrice = catalogueFilters.priceMin || priceBounds.min;
+    const maxActivePrice = catalogueFilters.priceMax || priceBounds.max;
+    const filtered = catalogueGroups.filter((group) => {
+      const facet = group._facet || {};
+      const price = group.minPrice ?? 0;
+      if (catalogueFilters.stock && facet.stockState !== catalogueFilters.stock) return false;
+      if (priceBounds.max && (price < minActivePrice || price > maxActivePrice)) return false;
+      for (const definition of sidebarDefinitions) {
+        const selected = catalogueFilters[definition.key];
+        if (Array.isArray(selected) && selected.length && !selected.includes(facet[definition.key])) return false;
       }
-      if (filters.sort === "favourites") return Number(hasFavourite(b)) - Number(hasFavourite(a)) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
-      if (filters.sort === "store") return (a.bestOffer?.store || "").localeCompare(b.bestOffer?.store || "") || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
-      return (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+      return true;
     });
-    return sorted;
-  }, [products, filters.sort, favouriteIds, meta]);
+    return filtered.sort((a, b) => compareBySelectedSort(a, b, catalogueFilters.sort));
+  }, [catalogueFilters, catalogueGroups, priceBounds, sidebarDefinitions]);
+
+  const compatibilityWarnings = useMemo(() => {
+    const suggestionWarnings = suggestion?.compatibilityWarnings || [];
+    const rowWarnings = buildCompatibilityWarnings(buildRows);
+    return [...new Set([...suggestionWarnings, ...rowWarnings])];
+  }, [suggestion, buildRows]);
 
   function showToast(message) {
     setToast(message);
@@ -341,7 +584,7 @@ function App() {
     showToast(data.favourite ? "Added to favourites" : "Removed from favourites");
   }
 
-  function addToBuild(product) {
+  function commitToBuild(product) {
     setManualSelections((current) => ({ ...current, [product.category]: product }));
     setRemovedCategories((current) => {
       const next = new Set(current);
@@ -351,6 +594,15 @@ function App() {
     setQuantities((current) => ({ ...current, [product.category]: current[product.category] || 1 }));
     setPage("build");
     showToast(`${product.category} added to build`);
+  }
+
+  function addToBuild(input) {
+    if (input?.offers?.length > 1) {
+      setOfferPickerGroup(input);
+      return;
+    }
+    const product = input?.bestOffer || input;
+    if (product) commitToBuild(product);
   }
 
   function updateQuantity(category, quantity) {
@@ -378,16 +630,6 @@ function App() {
       Stock: item.product.stock,
       URL: item.product.productUrl
     }));
-  }
-
-  function exportCsv() {
-    const rows = exportRows();
-    const header = Object.keys(rows[0] || { Category: "", Product: "", Store: "", Price: "", Stock: "", URL: "" });
-    const csv = [
-      header.join(","),
-      ...rows.map((row) => header.map((key) => `"${String(row[key] ?? "").replaceAll('"', '""')}"`).join(","))
-    ].join("\n");
-    downloadBlob(csv, "pc-build.csv", "text/csv;charset=utf-8");
   }
 
   function exportExcel() {
@@ -450,10 +692,10 @@ function App() {
   function renderPage() {
     if (loading) return <div className="grid min-h-[50vh] place-items-center text-slate-400">Loading PC parts...</div>;
     if (page === "parts") {
-      return <BrowseParts filters={filters} setFilters={setFilters} categories={categories} stores={meta?.stores || []} products={sortedProducts} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
+      return <BrowseParts filters={filters} setFilters={setFilters} catalogueFilters={catalogueFilters} setCatalogueFilters={setCatalogueFilters} categories={categories} stores={meta?.stores || []} products={visibleProducts} rawProducts={catalogueGroups} priceBounds={priceBounds} sidebarDefinitions={sidebarDefinitions} sidebarOptions={sidebarOptions} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
     }
     if (page === "build") {
-      return <BestValueBuild buildName={buildName} setBuildName={setBuildName} savingBuild={savingBuild} budget={budget} setBudget={setBudget} preferredStore={preferredStore} setPreferredStore={setPreferredStore} stores={meta?.stores || []} rows={buildRows} suggestion={suggestion} manualSelections={manualSelections} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} saveBuild={saveBuild} exportCsv={exportCsv} exportExcel={exportExcel} />;
+      return <BestValueBuild buildName={buildName} setBuildName={setBuildName} savingBuild={savingBuild} budget={budget} setBudget={setBudget} preferredStore={preferredStore} setPreferredStore={setPreferredStore} stores={meta?.stores || []} rows={buildRows} suggestion={suggestion} compatibilityWarnings={compatibilityWarnings} manualSelections={manualSelections} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} saveBuild={saveBuild} exportExcel={exportExcel} />;
     }
     if (page === "favourites") {
       return <Favourites groups={favourites} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
@@ -467,6 +709,7 @@ function App() {
     <div className="min-h-screen bg-[#070b14] text-slate-100 tech-grid">
       <Navigation page={page} setPage={setPage} stats={meta?.stats} />
       <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{renderPage()}</main>
+      <OfferPickerModal group={offerPickerGroup} onClose={() => setOfferPickerGroup(null)} onSelect={(offer) => { commitToBuild(offer); setOfferPickerGroup(null); }} />
       {toast ? <div className="fixed bottom-6 right-6 z-50 rounded-xl border border-cyan-300/30 bg-slate-950 px-4 py-3 text-sm font-bold text-cyan-100 shadow-2xl shadow-cyan-950/50">{toast}</div> : null}
     </div>
   );
@@ -512,12 +755,12 @@ function PageTitle({ eyebrow, title, children, action }) {
   );
 }
 
-function BrowseParts({ filters, setFilters, categories, stores, products, favouriteIds, toggleFavourite, addToBuild }) {
+function BrowseParts({ filters, setFilters, catalogueFilters, setCatalogueFilters, categories, stores, products, rawProducts, priceBounds, sidebarDefinitions, sidebarOptions, favouriteIds, toggleFavourite, addToBuild }) {
   return (
     <section className="space-y-5">
       <PageTitle eyebrow="Parts catalogue" title="Shop matched PC parts" action={<MetricPill icon={Gauge} label={`${products.length} matched groups`} />} />
       <div className="panel p-4">
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
+        <div className="grid gap-3 lg:grid-cols-[1.7fr_1fr_1fr]">
           <label className="filter-field">
             <Search size={17} />
             <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search CPUs, GPUs, stores..." />
@@ -530,29 +773,147 @@ function BrowseParts({ filters, setFilters, categories, stores, products, favour
             <option value="">All stores</option>
             {stores.map((store) => <option key={store.name} value={store.name}>{store.name}</option>)}
           </SelectField>
-          <SelectField icon={CheckCircle2} value={filters.stock} onChange={(stock) => setFilters((current) => ({ ...current, stock }))}>
-            <option value="">Any stock</option>
-            <option value="in">In stock</option>
-            <option value="out">Out / unknown</option>
-          </SelectField>
-          <SelectField icon={Table2} value={filters.sort} onChange={(sort) => setFilters((current) => ({ ...current, sort }))}>
-            <option value="price-asc">Price: low to high</option>
-            <option value="price-desc">Price: high to low</option>
-            <option value="category-order">Category order</option>
-            <option value="category-az">Category A-Z</option>
-            <option value="favourites">Favourites first</option>
-            <option value="store">Store A-Z</option>
-          </SelectField>
         </div>
       </div>
-      <ProductGrid products={products} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />
+      <div className="catalogue-layout">
+        <CatalogueSidebar
+          category={filters.category}
+          rawProducts={rawProducts}
+          priceBounds={priceBounds}
+          filters={catalogueFilters}
+          setFilters={setCatalogueFilters}
+          definitions={sidebarDefinitions}
+          options={sidebarOptions}
+        />
+        <ProductGrid products={products} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />
+      </div>
     </section>
   );
 }
 
 function ProductGrid({ products, favouriteIds, toggleFavourite, addToBuild }) {
-  if (!products.length) return <EmptyState title="No matching parts" copy="Try clearing filters or refreshing store listings from Admin." />;
-  return <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{products.map((group) => <ProductCard key={group.id} group={group} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />)}</div>;
+  if (!products.length) return <EmptyState title="No matching parts" copy="Adjust the left-side filters or clear the category and store selection." />;
+  return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{products.map((group) => <ProductCard key={group.id} group={group} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />)}</div>;
+}
+
+function CatalogueSidebar({ category, rawProducts, priceBounds, filters, setFilters, definitions, options }) {
+  const sortOptions = [
+    { value: "price-asc", label: "Price: low to high" },
+    { value: "price-desc", label: "Price: high to low" },
+    { value: "store", label: "Store A-Z" },
+    ...(category === "Monitors" ? [{ value: "refresh-desc", label: "Refresh rate: high to low" }, { value: "refresh-asc", label: "Refresh rate: low to high" }] : [])
+  ];
+
+  return (
+    <aside className="panel catalogue-sidebar p-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-300">Filter panel</p>
+          <h2 className="mt-1 text-lg font-black text-white">{category || "All categories"}</h2>
+        </div>
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={() => setFilters((current) => ({
+            ...current,
+            stock: "",
+            sort: category === "Monitors" ? "refresh-desc" : "price-asc",
+            priceMin: 0,
+            priceMax: 0,
+            brand: [],
+            resolution: [],
+            refreshRate: [],
+            panel: [],
+            size: [],
+            chipset: [],
+            vram: [],
+            generation: [],
+            speed: [],
+            capacity: [],
+            series: [],
+            formFactor: [],
+            type: [],
+            wattage: [],
+            rating: []
+          }))}
+        >
+          Reset
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-5">
+        <div className="space-y-2">
+          <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Sort</label>
+          <SelectField icon={SlidersHorizontal} value={filters.sort} onChange={(sort) => setFilters((current) => ({ ...current, sort }))}>
+            {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </SelectField>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Stock status</label>
+          <div className="grid grid-cols-2 gap-2">
+            <button className={`facet-chip ${filters.stock === "" ? "facet-chip-active" : ""}`} type="button" onClick={() => setFilters((current) => ({ ...current, stock: "" }))}>Any</button>
+            <button className={`facet-chip ${filters.stock === "in" ? "facet-chip-active" : ""}`} type="button" onClick={() => setFilters((current) => ({ ...current, stock: "in" }))}>In stock</button>
+            <button className={`facet-chip col-span-2 ${filters.stock === "out" ? "facet-chip-active" : ""}`} type="button" onClick={() => setFilters((current) => ({ ...current, stock: "out" }))}>Out or unknown</button>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">Price range</p>
+            <p className="mt-1 text-sm font-semibold text-slate-300">{formatPrice(filters.priceMin || priceBounds.min)} to {formatPrice(filters.priceMax || priceBounds.max)}</p>
+          </div>
+          <input className="w-full accent-cyan-300" type="range" min={priceBounds.min} max={priceBounds.max || 1} step={1000} value={filters.priceMin || priceBounds.min} onChange={(event) => setFilters((current) => ({ ...current, priceMin: Math.min(Number(event.target.value), current.priceMax || priceBounds.max) }))} />
+          <input className="w-full accent-cyan-300" type="range" min={priceBounds.min} max={priceBounds.max || 1} step={1000} value={filters.priceMax || priceBounds.max} onChange={(event) => setFilters((current) => ({ ...current, priceMax: Math.max(Number(event.target.value), current.priceMin || priceBounds.min) }))} />
+        </div>
+
+        {definitions.map((definition) => (
+          <FacetSection
+            key={definition.key}
+            label={definition.label}
+            options={options[definition.key] || []}
+            selected={filters[definition.key]}
+            onToggle={(value) => setFilters((current) => {
+              const currentValues = current[definition.key] || [];
+              return {
+                ...current,
+                [definition.key]: currentValues.includes(value)
+                  ? currentValues.filter((item) => item !== value)
+                  : [...currentValues, value]
+              };
+            })}
+          />
+        ))}
+
+        {!category && rawProducts.some((group) => group.category === "Monitors") ? (
+          <p className="rounded-xl border border-cyan-300/15 bg-cyan-300/8 px-3 py-3 text-sm font-medium text-cyan-100">
+            Choose `Monitors` to unlock refresh rate, panel, size, and resolution filters.
+          </p>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+function FacetSection({ label, options, selected, onToggle }) {
+  if (!options.length) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-400">{label}</p>
+      <div className="facet-chip-grid">
+        {options.map((option) => (
+          <button key={String(option)} className={`facet-chip ${selected.includes(option) ? "facet-chip-active" : ""}`} type="button" onClick={() => onToggle(option)}>
+            {typeof option === "number" ? String(option) : option}
+            {label === "Refresh rate" ? " Hz" : ""}
+            {label === "VRAM" ? " GB" : ""}
+            {label === "Speed" ? " MT/s" : ""}
+            {label === "Wattage" ? " W" : ""}
+            {label === "Size" ? '"' : ""}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function SelectField({ icon: Icon, value, onChange, children }) {
@@ -568,53 +929,58 @@ function ProductCard({ group, favouriteIds, toggleFavourite, addToBuild }) {
   const offer = group.bestOffer;
   const isFavourite = favouriteIds.has(offer.id);
   return (
-    <article className="card overflow-hidden transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:shadow-xl hover:shadow-cyan-950/30">
-      <div className="relative aspect-square bg-slate-950/70 p-5">
-        <button className={`icon-btn absolute right-3 top-3 ${isFavourite ? "icon-btn-on" : ""}`} onClick={() => toggleFavourite(offer.id)} title={isFavourite ? "Remove favourite" : "Add favourite"}>
-          <Heart size={17} fill={isFavourite ? "currentColor" : "none"} />
+    <article className="card catalogue-card overflow-hidden transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:shadow-xl hover:shadow-cyan-950/30">
+      <div className="relative aspect-square bg-slate-950/70 p-3">
+        <button className={`icon-btn absolute right-2 top-2 ${isFavourite ? "icon-btn-on" : ""}`} onClick={() => toggleFavourite(offer.id)} title={isFavourite ? "Remove favourite" : "Add favourite"}>
+          <Heart size={15} fill={isFavourite ? "currentColor" : "none"} />
         </button>
-        <img className="h-full w-full object-contain" src={group.imageUrl || "/static/img/placeholder.svg"} alt={group.name} loading="lazy" />
+        <SafeImage className="h-full w-full" src={group.imageUrl} alt={group.name} />
       </div>
-      <div className="space-y-4 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <StoreBadge store={offer.store} />
-          <StockBadge stock={offer.stock} />
+      <div className="space-y-3 p-3">
+        <div className="flex items-start justify-between gap-2">
+          <StoreBadge store={offer.store} compact />
+          <StockBadge stock={offer.stock} compact />
         </div>
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">{group.category}</p>
-          <h2 className="mt-1 line-clamp-2 min-h-12 text-base font-black leading-6 text-white">{group.name}</h2>
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group.category}</p>
+          <h2 className="mt-1 line-clamp-2 min-h-10 text-sm font-black leading-5 text-white">{group.name}</h2>
         </div>
-        <div className="flex items-end justify-between gap-3">
+        <div className="flex items-end justify-between gap-2">
           <div>
-            <p className="text-xs font-semibold text-slate-500">From</p>
-            <p className="text-2xl font-black tracking-tight text-cyan-100">{formatPrice(group.minPrice)}</p>
+            <p className="text-[11px] font-semibold text-slate-500">From</p>
+            <p className="text-lg font-black tracking-tight text-cyan-100">{formatPrice(group.minPrice)}</p>
           </div>
-          <p className="rounded-full bg-cyan-300/10 px-3 py-1 text-xs font-bold text-cyan-200">{group.offers.length} offers</p>
+          <p className="rounded-full bg-cyan-300/10 px-2 py-0.5 text-[11px] font-bold text-cyan-200">{group.offers.length} offers</p>
         </div>
-        <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-          {group.storePrices.slice(0, 4).map((item) => (
-            <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
+        <div className="space-y-1.5 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+          {group.storePrices.slice(0, 3).map((item) => (
+            <a
+              key={item.id}
+              className="offer-link-row flex items-center justify-between gap-2 text-xs"
+              href={item.productUrl || "#"}
+              target="_blank"
+              rel="noreferrer"
+            >
               <span className="font-semibold text-slate-400">{item.store}</span>
               <span className="font-black text-slate-100">{formatPrice(item.price)}</span>
-            </div>
+            </a>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <a className="btn-secondary" href={offer.productUrl || "#"} target="_blank" rel="noreferrer"><ExternalLink size={16} /> View</a>
-          <button className="btn-primary" onClick={() => addToBuild(offer)}><ShoppingCart size={16} /> Add to Build</button>
+        <div className="grid grid-cols-1 gap-2">
+          <button className="btn-primary" onClick={() => addToBuild(group)}><ShoppingCart size={14} /> Add</button>
         </div>
       </div>
     </article>
   );
 }
 
-function BestValueBuild({ buildName, setBuildName, savingBuild, budget, setBudget, preferredStore, setPreferredStore, stores, rows, suggestion, manualSelections, updateQuantity, removeBuildItem, saveBuild, exportCsv, exportExcel }) {
+function BestValueBuild({ buildName, setBuildName, savingBuild, budget, setBudget, preferredStore, setPreferredStore, stores, rows, suggestion, compatibilityWarnings, manualSelections, updateQuantity, removeBuildItem, saveBuild, exportExcel }) {
   const total = rows.reduce((sum, item) => sum + ((item.product.price || 0) * (item.quantity || 1)), 0);
   const remaining = (suggestion?.budget || budget) - total;
   const manualCount = Object.keys(manualSelections).length;
   return (
     <section className="space-y-5">
-      <PageTitle eyebrow="Build workspace" title="Selected component build" action={<div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={exportCsv}><Download size={16} /> CSV</button><button className="btn-secondary" onClick={exportExcel}><Table2 size={16} /> Excel</button><button className="btn-primary" disabled={savingBuild} onClick={saveBuild}><Save size={16} /> {savingBuild ? "Saving..." : "Save"}</button></div>}>{manualCount ? `${manualCount} slot${manualCount === 1 ? "" : "s"} manually selected from the catalogue.` : "Start from the suggested build, or add parts from Parts and Favourites to replace slots."}</PageTitle>
+      <PageTitle eyebrow="Build workspace" title="Selected component build" action={<div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={exportExcel}><Table2 size={16} /> Excel</button><button className="btn-primary" disabled={savingBuild} onClick={saveBuild}><Save size={16} /> {savingBuild ? "Saving..." : "Save"}</button></div>}>{manualCount ? `${manualCount} slot${manualCount === 1 ? "" : "s"} manually selected from the catalogue.` : "Start from the suggested build, or add parts from Parts and Favourites to replace slots."}</PageTitle>
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr_1fr]">
         <div className="panel p-5">
           <div className="flex items-center justify-between gap-3">
@@ -651,8 +1017,57 @@ function BestValueBuild({ buildName, setBuildName, savingBuild, budget, setBudge
           </SelectField>
         </div>
       </div>
+      {compatibilityWarnings.length ? (
+        <div className="panel p-4">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 shrink-0 text-amber-300" size={18} />
+            <div>
+              <p className="text-sm font-black text-amber-200">Compatibility checks</p>
+              <div className="mt-2 space-y-1">
+                {compatibilityWarnings.map((warning) => <p key={warning} className="text-sm font-medium text-slate-300">{warning}</p>)}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <BuildTable rows={rows} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} />
     </section>
+  );
+}
+
+function OfferPickerModal({ group, onClose, onSelect }) {
+  if (!group) return null;
+  const offers = [...(group.offers || [])].sort((left, right) => {
+    const stockRank = (value) => /in stock|available/i.test(value || "") ? 0 : 1;
+    return stockRank(left.stock) - stockRank(right.stock) || ((left.price ?? 999999999) - (right.price ?? 999999999));
+  });
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="panel modal-card p-5" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Choose store offer</p>
+            <h2 className="mt-1 text-xl font-black text-white">{group.name}</h2>
+            <p className="mt-2 text-sm font-medium text-slate-400">This product has multiple store listings. Pick the exact offer you want to add to the build.</p>
+          </div>
+          <button className="icon-btn" type="button" onClick={onClose}>+</button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {offers.map((offer) => (
+            <button key={offer.id} className="offer-picker-row" type="button" onClick={() => onSelect(offer)}>
+              <div className="min-w-0">
+                <p className="text-sm font-black text-white">{offer.store}</p>
+                <p className="mt-1 line-clamp-2 text-sm font-medium text-slate-400">{offer.name}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-base font-black text-cyan-100">{formatPrice(offer.price)}</p>
+                <p className="mt-1 text-xs font-bold text-slate-400">{offer.stock || "Unknown"}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -677,7 +1092,7 @@ function BuildRow({ item, updateQuantity, removeBuildItem }) {
   return (
     <tr className="align-middle">
       <td className="px-5 py-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-cyan-300/10 text-cyan-200"><Icon size={19} /></span><span className="font-black text-white">{item.category}</span></div></td>
-      <td className="px-5 py-4"><div className="flex items-center gap-3"><img className="h-14 w-14 rounded-xl border border-white/10 bg-slate-950 object-contain" src={item.product.imageUrl || "/static/img/placeholder.svg"} alt="" /><span className="max-w-md font-semibold leading-5 text-slate-200">{item.product.name}</span></div></td>
+      <td className="px-5 py-4"><div className="flex items-center gap-3"><SafeImage className="h-14 w-14 rounded-xl border border-white/10 bg-slate-950" src={item.product.imageUrl} alt={item.product.name} /><span className="max-w-md font-semibold leading-5 text-slate-200">{item.product.name}</span></div></td>
       <td className="px-5 py-4"><StoreBadge store={item.product.store} /></td>
       <td className="px-5 py-4 text-base font-black text-cyan-100 whitespace-nowrap">{formatPrice(item.product.price)}</td>
       <td className="px-5 py-4">
@@ -796,7 +1211,7 @@ function NewsImage({ item, className = "" }) {
   if (item.imageUrl) {
     return (
       <div className={`bg-slate-950 ${className}`}>
-        <img className="h-full w-full object-cover" src={item.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" />
+        <SafeImage className="h-full w-full" src={item.imageUrl} alt={item.title || "News image"} fit="cover" />
       </div>
     );
   }
@@ -856,13 +1271,15 @@ function MetricPill({ icon: Icon, label }) {
   return <div className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 text-sm font-black text-slate-200"><Icon size={17} className="text-cyan-300" />{label}</div>;
 }
 
-function StoreBadge({ store }) {
-  return <span className="inline-flex max-w-full items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-black text-cyan-100 whitespace-nowrap">{store || "Store"}</span>;
+function StoreBadge({ store, compact = false }) {
+  const sizeClass = compact ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs";
+  return <span className={`inline-flex max-w-full items-center rounded-full border border-cyan-300/20 bg-cyan-300/10 font-black text-cyan-100 whitespace-nowrap ${sizeClass}`}>{store || "Store"}</span>;
 }
 
-function StockBadge({ stock }) {
+function StockBadge({ stock, compact = false }) {
   const inStock = String(stock || "").toLowerCase().includes("in stock") || String(stock || "").toLowerCase().includes("available");
-  return <span className={`inline-flex max-w-full items-center rounded-full px-3 py-1 text-xs font-black leading-5 whitespace-nowrap ${inStock ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-300/10 text-amber-200"}`}>{stock || "Unknown"}</span>;
+  const sizeClass = compact ? "px-2 py-0.5 text-[11px] leading-4" : "px-3 py-1 text-xs leading-5";
+  return <span className={`inline-flex max-w-full items-center rounded-full font-black whitespace-nowrap ${sizeClass} ${inStock ? "bg-emerald-300/10 text-emerald-200" : "bg-amber-300/10 text-amber-200"}`}>{stock || "Unknown"}</span>;
 }
 
 function EmptyState({ title, copy }) {

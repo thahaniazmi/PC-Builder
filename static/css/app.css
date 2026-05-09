@@ -263,9 +263,9 @@ button.secondary {
 }
 
 .compact {
-  min-height: 34px;
-  padding: 0 11px;
-  font-size: 12px;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 11px;
 }
 
 .text-btn {
@@ -463,8 +463,8 @@ button.danger {
 
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .product-grid.table {
@@ -495,7 +495,7 @@ button.danger {
   min-height: 100%;
   background: linear-gradient(180deg, rgba(12, 22, 40, 0.92), rgba(8, 15, 28, 0.94));
   border: 1px solid rgba(111, 226, 255, 0.08);
-  border-radius: 18px;
+  border-radius: 14px;
   box-shadow: var(--shadow-panel);
   overflow: hidden;
   transition: transform 170ms ease, box-shadow 170ms ease, border-color 170ms ease;
@@ -509,7 +509,7 @@ button.danger {
 
 .product-card-media {
   position: relative;
-  padding: 14px 14px 0;
+  padding: 10px 10px 0;
 }
 
 .product-image-shell {
@@ -521,7 +521,7 @@ button.danger {
   width: 100%;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  border-radius: 16px;
+  border-radius: 12px;
   border: 1px solid rgba(111, 226, 255, 0.08);
   background:
     radial-gradient(circle at 50% 24%, rgba(40, 215, 255, 0.12), transparent 48%),
@@ -531,7 +531,7 @@ button.danger {
 .product-image-frame img {
   width: 100%;
   height: 100%;
-  padding: 18px;
+  padding: 12px;
   object-fit: contain;
   object-position: center;
 }
@@ -541,8 +541,8 @@ button.danger {
   inset: 0;
   display: none;
   place-items: center;
-  gap: 8px;
-  padding: 20px;
+  gap: 6px;
+  padding: 14px;
   text-align: center;
   color: var(--muted);
 }
@@ -550,9 +550,9 @@ button.danger {
 .product-image-placeholder span {
   display: inline-grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
   border: 1px solid rgba(111, 226, 255, 0.18);
   background: rgba(40, 215, 255, 0.08);
   color: var(--accent-2);
@@ -567,8 +567,8 @@ button.danger {
 .product-body {
   display: grid;
   grid-template-rows: auto auto auto auto 1fr auto;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .product-body-main {
@@ -578,7 +578,7 @@ button.danger {
 .badge-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 5px;
   align-items: center;
 }
 
@@ -587,10 +587,10 @@ button.danger {
 .price-flag {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
-  padding: 0 8px;
+  min-height: 20px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
 
@@ -647,8 +647,8 @@ button.danger {
 }
 
 .product-body h3 {
-  min-height: 44px;
-  font-size: 15px;
+  min-height: 40px;
+  font-size: 13px;
   -webkit-line-clamp: 2;
 }
 
@@ -659,7 +659,7 @@ button.danger {
 
 .price-label {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -668,16 +668,16 @@ button.danger {
 .price {
   margin: 0;
   color: var(--accent-2);
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 900;
   line-height: 1.05;
 }
 
 .price-list {
   display: grid;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 14px;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 11px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -691,9 +691,9 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -705,14 +705,14 @@ button.danger {
 
 .price-list-rows {
   display: grid;
-  gap: 6px;
+  gap: 5px;
 }
 
 .price-row {
   display: grid;
-  gap: 6px;
-  padding: 8px 9px;
-  border-radius: 12px;
+  gap: 5px;
+  padding: 6px 7px;
+  border-radius: 9px;
   background: rgba(255, 255, 255, 0.03);
 }
 
@@ -725,26 +725,26 @@ button.danger {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .price-store {
   color: #e8f4ff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
 .price-value {
   color: var(--accent-2);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .price-stock {
-  min-height: 22px;
-  padding: 0 8px;
+  min-height: 19px;
+  padding: 0 6px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
 }
 
@@ -755,12 +755,12 @@ button.danger {
 
 .fav {
   position: absolute;
-  top: 24px;
-  right: 24px;
-  width: 36px;
-  min-height: 36px;
+  top: 18px;
+  right: 18px;
+  width: 30px;
+  min-height: 30px;
   padding: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(4, 10, 20, 0.72);
   color: #96a9bd;
@@ -775,7 +775,7 @@ button.danger {
 .card-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
   margin-top: auto;
 }
 
@@ -1999,7 +1999,7 @@ button.danger {
 
 @media (max-width: 1399px) {
   .product-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -2035,7 +2035,7 @@ button.danger {
   }
 
   .product-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .value-layout {
@@ -2136,6 +2136,10 @@ button.danger {
   .compare-row,
   .build-row {
     grid-template-columns: 1fr;
+  }
+
+  .product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .product-grid.table .product-body {

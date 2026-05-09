@@ -159,6 +159,21 @@ button:disabled {
   color: #f9a8d4;
 }
 
+.catalogue-card .btn-primary,
+.catalogue-card .btn-secondary {
+  min-height: 2rem;
+  gap: 0.35rem;
+  border-radius: 0.7rem;
+  padding: 0 0.55rem;
+  font-size: 0.75rem;
+}
+
+.catalogue-card .icon-btn {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.7rem;
+}
+
 .qty-input {
   width: 4.25rem;
   min-height: 2.35rem;
@@ -217,4 +232,107 @@ button:disabled {
 
 .line-clamp-4 {
   -webkit-line-clamp: 4;
+}
+
+.catalogue-layout {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+
+.catalogue-sidebar {
+  position: sticky;
+  top: 6rem;
+}
+
+.facet-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.facet-chip {
+  min-height: 2rem;
+  border-radius: 999px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.04);
+  padding: 0 0.8rem;
+  color: #cbd5e1;
+  font-size: 0.78rem;
+  font-weight: 800;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.facet-chip:hover {
+  transform: translateY(-1px);
+  border-color: rgb(103 232 249 / 0.3);
+  background: rgb(103 232 249 / 0.08);
+}
+
+.facet-chip-active {
+  border-color: rgb(103 232 249 / 0.36);
+  background: rgb(103 232 249 / 0.16);
+  color: #ecfeff;
+}
+
+@media (min-width: 1024px) {
+  .catalogue-layout {
+    grid-template-columns: 18rem minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1023px) {
+  .catalogue-sidebar {
+    position: static;
+  }
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgb(2 6 23 / 0.7);
+  padding: 1rem;
+  backdrop-filter: blur(10px);
+}
+
+.modal-card {
+  width: min(42rem, 100%);
+  max-height: min(85vh, 48rem);
+  overflow: auto;
+}
+
+.offer-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  width: 100%;
+  align-items: center;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 1rem;
+  background: rgb(255 255 255 / 0.04);
+  padding: 0.95rem 1rem;
+  text-align: left;
+  transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.offer-picker-row:hover {
+  transform: translateY(-1px);
+  border-color: rgb(103 232 249 / 0.3);
+  background: rgb(103 232 249 / 0.08);
+}
+
+.offer-link-row {
+  border-radius: 0.7rem;
+  padding: 0.45rem 0.5rem;
+  color: inherit;
+  text-decoration: none;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.offer-link-row:hover {
+  transform: translateY(-1px);
+  background: rgb(103 232 249 / 0.08);
 }

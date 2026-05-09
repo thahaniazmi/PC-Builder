@@ -106,7 +106,8 @@ const storeProviders = [
   { id: "gamestreet", name: "GameStreet" },
   { id: "nanotek", name: "Nanotek" },
   { id: "tecroot", name: "TecRoot" },
-  { id: "disrupt", name: "Disrupt" }
+  { id: "disrupt", name: "Disrupt" },
+  { id: "mdcomputers", name: "MDComputers" }
 ];
 
 db.exec(`
@@ -344,6 +345,121 @@ function isValidComponent(product) {
   return aliases.some((term) => text.includes(term));
 }
 
+function extractBuildSpecs(product) {
+  const text = normalizeText(product.name);
+  const category = normalizeCategory(product.rawCategory || product.category, product.name);
+  const socket = text.match(/\b(am5|am4|lga\s*1700|lga\s*1851|lga\s*1200)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, "") || "";
+  const ramGeneration = text.match(/\b(ddr[45])\b/i)?.[1]?.toUpperCase() || "";
+  const motherboardChipset = text.match(/\b(a\d{3}|b\d{3}|h\d{3}|z\d{3}|x\d{3})\b/i)?.[1]?.toUpperCase() || "";
+  const formFactor = text.match(/\b(e-?atx|micro\s*atx|m-?atx|mini\s*itx|itx|atx)\b/i)?.[1]?.toUpperCase().replace(/\s+/g, "") || "";
+  const psuWattage = Number(text.match(/\b(\d{3,4})\s*w\b/i)?.[1] || 0) || null;
+  const gpuClass = text.match(/\b(rtx|gtx)\s*(\d{4})\b/i);
+  const gpuAmd = text.match(/\brx\s*(\d{4})\b/i);
+  const storageInterface = /\bnvme|m\.2\b/.test(text) ? "NVME" : /\bsata\b/.test(text) ? "SATA" : "";
+  let estimatedGpuDraw = 0;
+  if (category === "Graphics Cards / GPUs") {
+    if (gpuClass) {
+      const number = Number(gpuClass[2]);
+      if (number >= 5090) estimatedGpuDraw = 575;
+      else if (number >= 5080) estimatedGpuDraw = 360;
+      else if (number >= 5070) estimatedGpuDraw = 250;
+      else if (number >= 4070) estimatedGpuDraw = 220;
+      else if (number >= 3070) estimatedGpuDraw = 220;
+      else estimatedGpuDraw = 160;
+    } else if (gpuAmd) {
+      const number = Number(gpuAmd[1]);
+      if (number >= 7900) estimatedGpuDraw = 355;
+      else if (number >= 7800) estimatedGpuDraw = 265;
+      else if (number >= 7700) estimatedGpuDraw = 245;
+      else estimatedGpuDraw = 170;
+    }
+  }
+  let estimatedCpuDraw = 0;
+  if (category === "Processors / CPUs") {
+    if (/\bryzen\s*9\b/.test(text) || /\bcore\s*i9\b/.test(text) || /\bcore ultra 9\b/.test(text)) estimatedCpuDraw = 170;
+    else if (/\bryzen\s*7\b/.test(text) || /\bcore\s*i7\b/.test(text) || /\bcore ultra 7\b/.test(text)) estimatedCpuDraw = 125;
+    else if (/\bryzen\s*5\b/.test(text) || /\bcore\s*i5\b/.test(text) || /\bcore ultra 5\b/.test(text)) estimatedCpuDraw = 95;
+    else estimatedCpuDraw = 65;
+  }
+  return {
+    category,
+    socket,
+    ramGeneration,
+    motherboardChipset,
+    formFactor,
+    psuWattage,
+    estimatedGpuDraw,
+    estimatedCpuDraw,
+    storageInterface
+  };
+}
+
+function canMotherboardSupportSocket(chipset, socket) {
+  if (!chipset || !socket) return true;
+  if (socket === "AM4") return /^(A3|A5|B3|B4|B5|X3|X4|X5)/.test(chipset);
+  if (socket === "AM5") return /^(A6|B6|B8|X6|X8)/.test(chipset);
+  if (socket === "LGA1700") return /^(H6|B6|B7|Z6|Z7)/.test(chipset);
+  if (socket === "LGA1851") return /^(B8|Z8|H8)/.test(chipset);
+  return true;
+}
+
+function compatibilityIssues(selectedOffers, candidate) {
+  const issues = [];
+  const candidateSpecs = extractBuildSpecs(candidate);
+  const cpu = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "Processors / CPUs");
+  const motherboard = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "Motherboards");
+  const ram = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "RAM");
+  const psu = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "Power Supplies");
+  const gpu = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "Graphics Cards / GPUs");
+  const casing = selectedOffers.find((offer) => normalizeCategory(offer.rawCategory || offer.category, offer.name) === "Casing");
+
+  const cpuSpecs = cpu ? extractBuildSpecs(cpu) : null;
+  const motherboardSpecs = motherboard ? extractBuildSpecs(motherboard) : null;
+  const ramSpecs = ram ? extractBuildSpecs(ram) : null;
+  const psuSpecs = psu ? extractBuildSpecs(psu) : null;
+  const gpuSpecs = gpu ? extractBuildSpecs(gpu) : null;
+  const casingSpecs = casing ? extractBuildSpecs(casing) : null;
+
+  const nextCpu = candidateSpecs.category === "Processors / CPUs" ? candidateSpecs : cpuSpecs;
+  const nextMotherboard = candidateSpecs.category === "Motherboards" ? candidateSpecs : motherboardSpecs;
+  const nextRam = candidateSpecs.category === "RAM" ? candidateSpecs : ramSpecs;
+  const nextPsu = candidateSpecs.category === "Power Supplies" ? candidateSpecs : psuSpecs;
+  const nextGpu = candidateSpecs.category === "Graphics Cards / GPUs" ? candidateSpecs : gpuSpecs;
+  const nextCasing = candidateSpecs.category === "Casing" ? candidateSpecs : casingSpecs;
+
+  if (nextCpu && nextMotherboard) {
+    if (nextCpu.socket && nextMotherboard.socket && nextCpu.socket !== nextMotherboard.socket) issues.push("cpu-motherboard-socket");
+    if (!nextMotherboard.socket && nextCpu.socket && nextMotherboard.motherboardChipset && !canMotherboardSupportSocket(nextMotherboard.motherboardChipset, nextCpu.socket)) issues.push("cpu-motherboard-chipset");
+  }
+  if (nextRam && nextMotherboard && nextRam.ramGeneration && nextMotherboard.ramGeneration && nextRam.ramGeneration !== nextMotherboard.ramGeneration) {
+    issues.push("ram-motherboard-generation");
+  }
+  if (nextCasing && nextMotherboard && nextCasing.formFactor && nextMotherboard.formFactor) {
+    const formOrder = { "MINIITX": 1, "ITX": 1, "MATX": 2, "MICROATX": 2, "ATX": 3, "EATX": 4 };
+    if ((formOrder[nextCasing.formFactor] || 0) < (formOrder[nextMotherboard.formFactor] || 0)) issues.push("case-motherboard-form-factor");
+  }
+  if (nextPsu && (nextCpu || nextGpu)) {
+    const required = (nextCpu?.estimatedCpuDraw || 0) + (nextGpu?.estimatedGpuDraw || 0) + 180;
+    if (nextPsu.psuWattage && required && nextPsu.psuWattage < required) issues.push("psu-headroom");
+  }
+  return issues;
+}
+
+function compatibilityWarningsForBuild(products) {
+  const warnings = [];
+  const allIssues = new Set();
+  for (const product of products) {
+    for (const issue of compatibilityIssues(products.filter((item) => item.id !== product.id), product)) {
+      allIssues.add(issue);
+    }
+  }
+  if (allIssues.has("cpu-motherboard-socket") || allIssues.has("cpu-motherboard-chipset")) warnings.push("CPU and motherboard may not share the same platform.");
+  if (allIssues.has("ram-motherboard-generation")) warnings.push("RAM generation may not match the selected motherboard.");
+  if (allIssues.has("case-motherboard-form-factor")) warnings.push("Case size may be too small for the selected motherboard.");
+  if (allIssues.has("psu-headroom")) warnings.push("Power supply wattage may be too low for the CPU and GPU combination.");
+  return warnings;
+}
+
 function groupProducts(products) {
   const groups = new Map();
   for (const product of products) {
@@ -378,7 +494,7 @@ function groupProducts(products) {
       group.offers.sort((a, b) => (isInStock(b.stock) - isInStock(a.stock)) || ((a.price ?? 999999999) - (b.price ?? 999999999)));
       group.bestOffer = group.offers[0];
       group.name = group.canonicalName || group.bestOffer.name;
-      group.storePrices = group.offers.map((offer) => ({ store: offer.store, price: offer.price, stock: offer.stock, id: offer.id }));
+      group.storePrices = group.offers.map((offer) => ({ store: offer.store, price: offer.price, stock: offer.stock, id: offer.id, productUrl: offer.productUrl || "" }));
       return group;
     })
     .sort((a, b) => (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999));
@@ -462,7 +578,10 @@ app.get("/api/suggestions", (req, res) => {
     const target = Math.floor(budget * slot.weight);
     const validOffers = categoryGroups
       .flatMap((group) => group.offers.map((offer) => ({ group, offer })))
-      .filter(({ offer }) => isValidComponent(offer) && offer.price && (slot.required || total + offer.price <= budget))
+      .filter(({ offer }) => {
+        if (!(isValidComponent(offer) && offer.price && (slot.required || total + offer.price <= budget))) return false;
+        return compatibilityIssues(selected.map((item) => item.product), offer).length === 0;
+      })
       .sort((a, b) => {
         const aStock = isInStock(a.offer.stock) ? 0 : 1;
         const bStock = isInStock(b.offer.stock) ? 0 : 1;
@@ -470,7 +589,19 @@ app.get("/api/suggestions", (req, res) => {
         const bDistance = Math.abs((b.offer.price || 0) - target);
         return aStock - bStock || aDistance - bDistance || a.offer.price - b.offer.price;
       });
-    const pick = validOffers.find(({ offer }) => total + offer.price <= budget * 1.08) || validOffers[0];
+    const fallbackOffers = categoryGroups
+      .flatMap((group) => group.offers.map((offer) => ({ group, offer })))
+      .filter(({ offer }) => isValidComponent(offer) && offer.price && (slot.required || total + offer.price <= budget))
+      .sort((a, b) => {
+        const aIssueCount = compatibilityIssues(selected.map((item) => item.product), a.offer).length;
+        const bIssueCount = compatibilityIssues(selected.map((item) => item.product), b.offer).length;
+        const aStock = isInStock(a.offer.stock) ? 0 : 1;
+        const bStock = isInStock(b.offer.stock) ? 0 : 1;
+        const aDistance = Math.abs((a.offer.price || 0) - target);
+        const bDistance = Math.abs((b.offer.price || 0) - target);
+        return aIssueCount - bIssueCount || aStock - bStock || aDistance - bDistance || a.offer.price - b.offer.price;
+      });
+    const pick = validOffers.find(({ offer }) => total + offer.price <= budget * 1.08) || validOffers[0] || fallbackOffers[0];
     if (!pick) continue;
     total += pick.offer.price || 0;
     selected.push({
@@ -486,6 +617,7 @@ app.get("/api/suggestions", (req, res) => {
     preferredStore,
     total,
     remaining: budget - total,
+    compatibilityWarnings: compatibilityWarningsForBuild(selected.map((item) => item.product)),
     selected,
     grouped: selected.reduce((acc, item) => {
       acc[item.category] = item;
@@ -604,13 +736,17 @@ app.post("/api/admin/refresh/:provider", async (req, res) => {
     "from pathlib import Path",
     "root = Path(sys.argv[2])",
     "sys.path.insert(0, str(root))",
-    "from app import SessionLocal, upsert_products",
+    "from app import SessionLocal, upsert_products, Product, select, func",
     "from stores import PROVIDERS",
     "name = sys.argv[1]",
     "provider_cls = PROVIDERS[name]",
     "with SessionLocal() as db:",
-    "    count = upsert_products(db, provider_cls().iter_products(limit=300), price_stock_only=True)",
-    "    print(count)"
+    "    provider = provider_cls()",
+    "    existing = db.scalar(select(func.count(Product.id)).where(Product.store == provider.store_name)) or 0",
+    "    price_stock_only = existing > 0 and provider.store_name != 'MDComputers'",
+    "    limit = None if provider.store_name == 'MDComputers' else 300",
+    "    count = upsert_products(db, provider.iter_products(limit=limit), price_stock_only=price_stock_only)",
+    "    print(f'{count}|{\"refresh\" if price_stock_only else \"import\"}')"
   ].join("\n");
 
   try {
@@ -619,8 +755,16 @@ app.post("/api/admin/refresh/:provider", async (req, res) => {
       timeout: 600000,
       maxBuffer: 1024 * 1024
     });
-    const count = Number(String(stdout).trim().split(/\s+/).pop()) || 0;
-    res.json({ provider, status: "success", count, message: `Updated ${count} listings.` });
+    const tail = String(stdout).trim().split(/\s+/).pop() || "0|refresh";
+    const [countText, mode] = tail.split("|");
+    const count = Number(countText) || 0;
+    res.json({
+      provider,
+      status: "success",
+      count,
+      mode,
+      message: mode === "import" ? `Imported ${count} listings.` : `Updated ${count} listings.`
+    });
   } catch (error) {
     const timedOut = error.killed || error.signal === "SIGTERM";
     res.status(500).json({
