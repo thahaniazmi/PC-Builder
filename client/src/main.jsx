@@ -791,9 +791,22 @@ function BrowseParts({ filters, setFilters, catalogueFilters, setCatalogueFilter
   );
 }
 
-function ProductGrid({ products, favouriteIds, toggleFavourite, addToBuild }) {
+function ProductGrid({ products, favouriteIds, toggleFavourite, addToBuild, compact = false }) {
   if (!products.length) return <EmptyState title="No matching parts" copy="Adjust the left-side filters or clear the category and store selection." />;
-  return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">{products.map((group) => <ProductCard key={group.id} group={group} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />)}</div>;
+  return (
+    <div className={`grid gap-3 sm:grid-cols-2 ${compact ? "lg:grid-cols-4" : "lg:grid-cols-3 2xl:grid-cols-4"}`}>
+      {products.map((group) => (
+        <ProductCard
+          key={group.id}
+          group={group}
+          favouriteIds={favouriteIds}
+          toggleFavourite={toggleFavourite}
+          addToBuild={addToBuild}
+          compact={compact}
+        />
+      ))}
+    </div>
+  );
 }
 
 function CatalogueSidebar({ category, rawProducts, priceBounds, filters, setFilters, definitions, options }) {
@@ -925,38 +938,38 @@ function SelectField({ icon: Icon, value, onChange, children }) {
   );
 }
 
-function ProductCard({ group, favouriteIds, toggleFavourite, addToBuild }) {
+function ProductCard({ group, favouriteIds, toggleFavourite, addToBuild, compact = false }) {
   const offer = group.bestOffer;
   const isFavourite = favouriteIds.has(offer.id);
   return (
     <article className="card catalogue-card overflow-hidden transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:shadow-xl hover:shadow-cyan-950/30">
-      <div className="relative aspect-square bg-slate-950/70 p-3">
+      <div className={`relative aspect-square bg-slate-950/70 ${compact ? "p-2" : "p-3"}`}>
         <button className={`icon-btn absolute right-2 top-2 ${isFavourite ? "icon-btn-on" : ""}`} onClick={() => toggleFavourite(offer.id)} title={isFavourite ? "Remove favourite" : "Add favourite"}>
-          <Heart size={15} fill={isFavourite ? "currentColor" : "none"} />
+          <Heart size={compact ? 13 : 15} fill={isFavourite ? "currentColor" : "none"} />
         </button>
         <SafeImage className="h-full w-full" src={group.imageUrl} alt={group.name} />
       </div>
-      <div className="space-y-3 p-3">
+      <div className={`${compact ? "space-y-2 p-2.5" : "space-y-3 p-3"}`}>
         <div className="flex items-start justify-between gap-2">
           <StoreBadge store={offer.store} compact />
           <StockBadge stock={offer.stock} compact />
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group.category}</p>
-          <h2 className="mt-1 line-clamp-2 min-h-10 text-sm font-black leading-5 text-white">{group.name}</h2>
+          <p className={`${compact ? "text-[9px]" : "text-[10px]"} font-bold uppercase tracking-[0.12em] text-slate-500`}>{group.category}</p>
+          <h2 className={`mt-1 line-clamp-2 ${compact ? "min-h-9 text-xs leading-4" : "min-h-10 text-sm leading-5"} font-black text-white`}>{group.name}</h2>
         </div>
         <div className="flex items-end justify-between gap-2">
           <div>
-            <p className="text-[11px] font-semibold text-slate-500">From</p>
-            <p className="text-lg font-black tracking-tight text-cyan-100">{formatPrice(group.minPrice)}</p>
+            <p className={`${compact ? "text-[10px]" : "text-[11px]"} font-semibold text-slate-500`}>From</p>
+            <p className={`${compact ? "text-base" : "text-lg"} font-black tracking-tight text-cyan-100`}>{formatPrice(group.minPrice)}</p>
           </div>
-          <p className="rounded-full bg-cyan-300/10 px-2 py-0.5 text-[11px] font-bold text-cyan-200">{group.offers.length} offers</p>
+          <p className={`rounded-full bg-cyan-300/10 ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-0.5 text-[11px]"} font-bold text-cyan-200`}>{group.offers.length} offers</p>
         </div>
-        <div className="space-y-1.5 rounded-xl border border-white/10 bg-white/[0.03] p-2">
+        <div className={`space-y-1.5 rounded-xl border border-white/10 bg-white/[0.03] ${compact ? "p-1.5" : "p-2"}`}>
           {group.storePrices.slice(0, 3).map((item) => (
             <a
               key={item.id}
-              className="offer-link-row flex items-center justify-between gap-2 text-xs"
+              className={`offer-link-row flex items-center justify-between gap-2 ${compact ? "text-[11px]" : "text-xs"}`}
               href={item.productUrl || "#"}
               target="_blank"
               rel="noreferrer"
@@ -967,7 +980,7 @@ function ProductCard({ group, favouriteIds, toggleFavourite, addToBuild }) {
           ))}
         </div>
         <div className="grid grid-cols-1 gap-2">
-          <button className="btn-primary" onClick={() => addToBuild(group)}><ShoppingCart size={14} /> Add</button>
+          <button className="btn-primary" onClick={() => addToBuild(group)}><ShoppingCart size={compact ? 12 : 14} /> Add</button>
         </div>
       </div>
     </article>
@@ -1113,7 +1126,7 @@ function Favourites({ groups, favouriteIds, toggleFavourite, addToBuild }) {
   return (
     <section className="space-y-5">
       <PageTitle eyebrow="Shortlist" title="Favourite parts">Parts you marked for later comparison.</PageTitle>
-      <ProductGrid products={groups} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />
+      <ProductGrid products={groups} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} compact />
     </section>
   );
 }
