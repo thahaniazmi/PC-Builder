@@ -84,10 +84,11 @@ const categoryOrder = [
   "Other"
 ];
 
-function filterCategory(category) {
+function filterCategory(category, name = "") {
+  const text = `${String(category || "")} ${String(name || "")}`.toLowerCase();
+  if (/\b(thermal\s+paste|thermal\s+compound|thermal\s+grease|cpu\s+paste)\b/.test(text)) return "Accessories";
   const normalized = normalizeCategory(category);
   if (categoryOrder.includes(normalized)) return normalized;
-  const text = String(category || "").toLowerCase();
   if (/\b(monitors?|display)\b/.test(text)) return "Monitors";
   if (/\bkeyboards?\b/.test(text)) return "Keyboards";
   if (/\b(mice|mouse)\b/.test(text)) return "Mice";
@@ -115,6 +116,11 @@ db.exec(`
   )
 `);
 
+const buildItemColumns = rows("PRAGMA table_info(build_items)").map((column) => column.name);
+if (!buildItemColumns.includes("quantity")) {
+  db.exec("ALTER TABLE build_items ADD COLUMN quantity INTEGER DEFAULT 1");
+}
+
 function rows(sql, params = {}) {
   return db.prepare(sql).all(params);
 }
@@ -133,7 +139,7 @@ function formatProduct(row) {
     id: row.id,
     name: row.name,
     store: row.store,
-    category: filterCategory(row.category),
+    category: filterCategory(row.category, row.name),
     rawCategory: row.category,
     price: row.price_lkr,
     previousPrice: row.previous_price_lkr,
@@ -387,11 +393,11 @@ function allProducts(whereSql = "", params = {}, limit = 1200) {
 }
 
 app.get("/api/meta", (_req, res) => {
-  const categoryRows = rows("SELECT category, COUNT(*) as count FROM products GROUP BY category ORDER BY category");
+  const categoryRows = rows("SELECT category, name FROM products ORDER BY category");
   const categoryCounts = new Map();
   for (const row of categoryRows) {
-    const name = filterCategory(row.category);
-    categoryCounts.set(name, (categoryCounts.get(name) || 0) + row.count);
+    const name = filterCategory(row.category, row.name);
+    categoryCounts.set(name, (categoryCounts.get(name) || 0) + 1);
   }
   const categories = [...categoryCounts.entries()]
     .map(([name, count]) => ({ name, raw: name, count }))
@@ -417,6 +423,7 @@ app.get("/api/meta", (_req, res) => {
 app.get("/api/products", (req, res) => {
   const filters = [];
   const params = {};
+  let selectedCategory = "";
   if (req.query.search) {
     filters.push("(LOWER(name) LIKE $search OR LOWER(store) LIKE $search)");
     params.$search = `%${String(req.query.search).toLowerCase()}%`;
@@ -426,33 +433,26 @@ app.get("/api/products", (req, res) => {
     params.$store = String(req.query.store);
   }
   if (req.query.category) {
-    const selectedCategory = String(req.query.category);
-    const rawCategories = rows("SELECT DISTINCT category FROM products")
-      .map((row) => row.category)
-      .filter((category) => filterCategory(category) === selectedCategory);
-    if (rawCategories.length) {
-      const placeholders = rawCategories.map((_, index) => `$category${index}`);
-      filters.push(`category IN (${placeholders.join(", ")})`);
-      rawCategories.forEach((category, index) => {
-        params[`$category${index}`] = category;
-      });
-    } else {
-      filters.push("category = $category");
-      params.$category = selectedCategory;
-    }
+    selectedCategory = String(req.query.category);
   }
   if (req.query.stock === "in") {
     filters.push("(LOWER(availability) LIKE '%in stock%' OR LOWER(availability) LIKE '%available%')");
   } else if (req.query.stock === "out") {
     filters.push("NOT (LOWER(availability) LIKE '%in stock%' OR LOWER(availability) LIKE '%available%')");
   }
-  const products = allProducts(filters.length ? `WHERE ${filters.join(" AND ")}` : "", params);
+  let products = allProducts(filters.length ? `WHERE ${filters.join(" AND ")}` : "", params);
+  if (selectedCategory) {
+    products = products.filter((product) => product.category === selectedCategory);
+  }
   res.json({ groups: groupProducts(products), count: products.length });
 });
 
 app.get("/api/suggestions", (req, res) => {
   const budget = Math.max(Number(req.query.budget || 450000), 100000);
-  const candidates = groupProducts(allProducts("", {}, 0)).filter((group) => group.offers.some(isValidComponent));
+  const preferredStore = String(req.query.store || "").trim();
+  const whereSql = preferredStore ? "WHERE store = $store" : "";
+  const params = preferredStore ? { $store: preferredStore } : {};
+  const candidates = groupProducts(allProducts(whereSql, params, 0)).filter((group) => group.offers.some(isValidComponent));
   const selected = [];
   let total = 0;
 
@@ -483,6 +483,7 @@ app.get("/api/suggestions", (req, res) => {
 
   res.json({
     budget,
+    preferredStore,
     total,
     remaining: budget - total,
     selected,
@@ -496,24 +497,47 @@ app.get("/api/suggestions", (req, res) => {
 app.post("/api/builds", (req, res) => {
   const name = String(req.body.name || "Saved build").slice(0, 250);
   const budget = Number(req.body.budget || 0) || null;
+  const preferredStore = String(req.body.preferredStore || "").slice(0, 120);
   const items = Array.isArray(req.body.items) ? req.body.items : [];
   const now = new Date().toISOString();
   const result = run(
-    "INSERT INTO builds (name, budget_lkr, favourite, created_at, selection_mode, preferred_store) VALUES ($name, $budget, 0, $now, 'suggested', '')",
-    { $name: name, $budget: budget, $now: now }
+    "INSERT INTO builds (name, budget_lkr, favourite, created_at, selection_mode, preferred_store) VALUES ($name, $budget, 0, $now, $mode, $store)",
+    { $name: name, $budget: budget, $now: now, $mode: preferredStore ? "single-store" : "suggested", $store: preferredStore }
   );
   for (const item of items) {
-    if (!item?.product?.id || !componentCategories.includes(item.category)) continue;
+    if (!item?.product || !item.category) continue;
+    const quantity = Math.max(1, Math.min(99, Number(item.quantity || 1) || 1));
+    let productId = Number(item.product.id);
+    if (item.product.custom || !productId) {
+      const nowKey = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const customResult = run(
+        "INSERT INTO products (name, store, category, price_lkr, previous_price_lkr, discount_label, availability, warranty, image_url, product_url, last_updated, notes, source, dedupe_key) VALUES ($name, $store, $category, $price, NULL, '', 'Manual item', '', $image, '', $now, $notes, 'custom-build', $key)",
+        {
+          $name: String(item.product.name || "Custom item").slice(0, 500),
+          $store: String(item.product.store || "Custom").slice(0, 120),
+          $category: String(item.category || "Other").slice(0, 120),
+          $price: Number(item.product.price || 0) || null,
+          $image: item.product.imageUrl || placeholderImage,
+          $now: now,
+          $notes: item.product.notes || "",
+          $key: `custom:${nowKey}`
+        }
+      );
+      productId = Number(customResult.lastInsertRowid);
+    }
+    if (!productId) continue;
     run(
-      "INSERT INTO build_items (build_id, category, product_id, offer_id, selected_store, selected_price, selected_at, selection_method) VALUES ($build, $category, $product, $offer, $store, $price, $now, 'suggested')",
+      "INSERT INTO build_items (build_id, category, product_id, offer_id, selected_store, selected_price, selected_at, selection_method, quantity) VALUES ($build, $category, $product, $offer, $store, $price, $now, $method, $quantity)",
       {
         $build: result.lastInsertRowid,
         $category: item.category,
-        $product: item.product.id,
-        $offer: item.product.id,
+        $product: productId,
+        $offer: productId,
         $store: item.product.store || "",
         $price: item.product.price || null,
-        $now: now
+        $now: now,
+        $method: item.product.custom ? "custom" : "suggested",
+        $quantity: quantity
       }
     );
   }
@@ -523,13 +547,23 @@ app.post("/api/builds", (req, res) => {
 app.get("/api/builds", (_req, res) => {
   const builds = rows("SELECT * FROM builds ORDER BY created_at DESC LIMIT 50").map((build) => ({
     ...build,
-    total: scalar("SELECT SUM(COALESCE(selected_price, p.price_lkr, 0)) FROM build_items bi JOIN products p ON p.id = bi.product_id WHERE bi.build_id = $id", { $id: build.id }) || 0,
+    total: scalar("SELECT SUM(COALESCE(bi.selected_price, p.price_lkr, 0) * COALESCE(bi.quantity, 1)) FROM build_items bi JOIN products p ON p.id = bi.product_id WHERE bi.build_id = $id", { $id: build.id }) || 0,
     items: rows(
       "SELECT bi.*, p.name, p.store, p.image_url, p.availability, p.product_url FROM build_items bi JOIN products p ON p.id = bi.product_id WHERE bi.build_id = $id ORDER BY bi.id",
       { $id: build.id }
     )
   }));
   res.json({ builds });
+});
+
+app.delete("/api/builds/:buildId", (req, res) => {
+  const buildId = Number(req.params.buildId);
+  if (!buildId) return res.status(400).json({ error: "Invalid build id" });
+  const exists = scalar("SELECT id FROM builds WHERE id = $id", { $id: buildId });
+  if (!exists) return res.status(404).json({ error: "Build not found" });
+  run("DELETE FROM build_items WHERE build_id = $id", { $id: buildId });
+  run("DELETE FROM builds WHERE id = $id", { $id: buildId });
+  res.json({ deleted: true, id: buildId });
 });
 
 app.get("/api/favourites", (_req, res) => {
@@ -564,7 +598,7 @@ app.post("/api/admin/refresh/:provider", async (req, res) => {
     return res.status(404).json({ error: "Unknown provider" });
   }
 
-  const pythonPath = path.join(rootDir, ".venv", "Scripts", "python.exe");
+  const pythonPath = process.env.PCBUILDER_PYTHON || "python";
   const code = [
     "import sys",
     "from pathlib import Path",
@@ -575,23 +609,26 @@ app.post("/api/admin/refresh/:provider", async (req, res) => {
     "name = sys.argv[1]",
     "provider_cls = PROVIDERS[name]",
     "with SessionLocal() as db:",
-    "    count = upsert_products(db, provider_cls().iter_products(limit=300))",
+    "    count = upsert_products(db, provider_cls().iter_products(limit=300), price_stock_only=True)",
     "    print(count)"
   ].join("\n");
 
   try {
     const { stdout } = await execFileAsync(pythonPath, ["-c", code, provider, rootDir], {
       cwd: rootDir,
-      timeout: 180000,
+      timeout: 600000,
       maxBuffer: 1024 * 1024
     });
     const count = Number(String(stdout).trim().split(/\s+/).pop()) || 0;
     res.json({ provider, status: "success", count, message: `Updated ${count} listings.` });
   } catch (error) {
+    const timedOut = error.killed || error.signal === "SIGTERM";
     res.status(500).json({
       provider,
       status: "failed",
-      message: error.stderr || error.stdout || error.message || "Refresh failed"
+      message: timedOut
+        ? `Refresh timed out for ${provider}. The store may be slow or blocking requests.`
+        : error.stderr || error.stdout || error.message || "Refresh failed"
     });
   }
 });

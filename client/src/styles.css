@@ -159,6 +159,23 @@ button:disabled {
   color: #f9a8d4;
 }
 
+.qty-input {
+  width: 4.25rem;
+  min-height: 2.35rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(2 6 23 / 0.72);
+  color: #e2e8f0;
+  padding: 0 0.65rem;
+  font-weight: 850;
+  outline: none;
+}
+
+.qty-input:focus {
+  border-color: rgb(103 232 249 / 0.45);
+  box-shadow: 0 0 0 3px rgb(103 232 249 / 0.12);
+}
+
 .status-dot {
   width: 0.8rem;
   height: 0.8rem;

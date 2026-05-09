@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  Trash2,
   Settings,
   ShoppingCart,
   Sparkles,
@@ -57,6 +58,145 @@ function formatPrice(value) {
   return value ? money.format(value).replace("LKR", "Rs.") : "Price unavailable";
 }
 
+function xmlEscape(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function excelColumnName(index) {
+  let name = "";
+  let value = index + 1;
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    name = String.fromCharCode(65 + remainder) + name;
+    value = Math.floor((value - 1) / 26);
+  }
+  return name;
+}
+
+function crc32(bytes) {
+  let crc = -1;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+    }
+  }
+  return (crc ^ -1) >>> 0;
+}
+
+function writeUint16(target, offset, value) {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+}
+
+function writeUint32(target, offset, value) {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+  target[offset + 2] = (value >>> 16) & 0xff;
+  target[offset + 3] = (value >>> 24) & 0xff;
+}
+
+function createZip(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const centralDirectory = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const data = encoder.encode(file.content);
+    const checksum = crc32(data);
+    const localHeader = new Uint8Array(30 + nameBytes.length);
+    writeUint32(localHeader, 0, 0x04034b50);
+    writeUint16(localHeader, 4, 20);
+    writeUint16(localHeader, 6, 0);
+    writeUint16(localHeader, 8, 0);
+    writeUint16(localHeader, 10, 0);
+    writeUint16(localHeader, 12, 0);
+    writeUint32(localHeader, 14, checksum);
+    writeUint32(localHeader, 18, data.length);
+    writeUint32(localHeader, 22, data.length);
+    writeUint16(localHeader, 26, nameBytes.length);
+    localHeader.set(nameBytes, 30);
+    chunks.push(localHeader, data);
+
+    const directoryHeader = new Uint8Array(46 + nameBytes.length);
+    writeUint32(directoryHeader, 0, 0x02014b50);
+    writeUint16(directoryHeader, 4, 20);
+    writeUint16(directoryHeader, 6, 20);
+    writeUint16(directoryHeader, 8, 0);
+    writeUint16(directoryHeader, 10, 0);
+    writeUint16(directoryHeader, 12, 0);
+    writeUint16(directoryHeader, 14, 0);
+    writeUint32(directoryHeader, 16, checksum);
+    writeUint32(directoryHeader, 20, data.length);
+    writeUint32(directoryHeader, 24, data.length);
+    writeUint16(directoryHeader, 28, nameBytes.length);
+    writeUint32(directoryHeader, 42, offset);
+    directoryHeader.set(nameBytes, 46);
+    centralDirectory.push(directoryHeader);
+    offset += localHeader.length + data.length;
+  }
+
+  const centralOffset = offset;
+  const centralSize = centralDirectory.reduce((sum, item) => sum + item.length, 0);
+  const endRecord = new Uint8Array(22);
+  writeUint32(endRecord, 0, 0x06054b50);
+  writeUint16(endRecord, 8, files.length);
+  writeUint16(endRecord, 10, files.length);
+  writeUint32(endRecord, 12, centralSize);
+  writeUint32(endRecord, 16, centralOffset);
+  return new Blob([...chunks, ...centralDirectory, endRecord], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  });
+}
+
+function createXlsxBlob(rows, headers) {
+  const cell = (value, rowIndex, columnIndex) => {
+    const ref = `${excelColumnName(columnIndex)}${rowIndex + 1}`;
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return `<c r="${ref}"><v>${value}</v></c>`;
+    }
+    return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(value)}</t></is></c>`;
+  };
+  const sheetRows = [headers, ...rows.map((row) => headers.map((header) => row[header] ?? ""))]
+    .map((row, rowIndex) => `<row r="${rowIndex + 1}">${row.map((value, columnIndex) => cell(value, rowIndex, columnIndex)).join("")}</row>`)
+    .join("");
+  const lastColumn = excelColumnName(Math.max(headers.length - 1, 0));
+  const dimension = headers.length ? `A1:${lastColumn}${rows.length + 1}` : "A1";
+
+  return createZip([
+    {
+      name: "[Content_Types].xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`
+    },
+    {
+      name: "_rels/.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`
+    },
+    {
+      name: "xl/workbook.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="PC Build" sheetId="1" r:id="rId1"/></sheets></workbook>`
+    },
+    {
+      name: "xl/_rels/workbook.xml.rels",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`
+    },
+    {
+      name: "xl/worksheets/sheet1.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="${dimension}"/><sheetData>${sheetRows}</sheetData></worksheet>`
+    },
+    {
+      name: "xl/styles.xml",
+      content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>`
+    }
+  ]);
+}
+
 function api(path, options) {
   return fetch(path, options).then((response) => {
     if (!response.ok) throw new Error(`Request failed: ${response.status}`);
@@ -75,9 +215,15 @@ function App() {
   const [providers, setProviders] = useState([]);
   const [suggestion, setSuggestion] = useState(null);
   const [manualSelections, setManualSelections] = useState({});
+  const [removedCategories, setRemovedCategories] = useState(new Set());
+  const [quantities, setQuantities] = useState({});
   const [loading, setLoading] = useState(true);
   const [budget, setBudget] = useState(450000);
-  const [filters, setFilters] = useState({ search: "", category: "", store: "", stock: "" });
+  const [preferredStore, setPreferredStore] = useState("");
+  const [buildName, setBuildName] = useState("");
+  const [savingBuild, setSavingBuild] = useState(false);
+  const [deletingBuildIds, setDeletingBuildIds] = useState(new Set());
+  const [filters, setFilters] = useState({ search: "", category: "", store: "", stock: "", sort: "price-asc" });
   const [toast, setToast] = useState("");
 
   useEffect(() => {
@@ -119,17 +265,19 @@ function App() {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      api(`/api/suggestions?budget=${budget}`).then(setSuggestion).catch(console.error);
+      const params = new URLSearchParams({ budget: String(budget) });
+      if (preferredStore) params.set("store", preferredStore);
+      api(`/api/suggestions?${params.toString()}`).then(setSuggestion).catch(console.error);
     }, 250);
     return () => clearTimeout(timer);
-  }, [budget]);
+  }, [budget, preferredStore]);
 
   const categories = useMemo(() => {
     return meta?.categories || [];
   }, [meta]);
 
   const buildRows = useMemo(() => {
-    const byCategory = new Map((suggestion?.selected || []).map((item) => [item.category, item]));
+    const byCategory = new Map((suggestion?.selected || []).filter((item) => !removedCategories.has(item.category)).map((item) => [item.category, item]));
     Object.values(manualSelections).forEach((product) => {
       byCategory.set(product.category, {
         category: product.category,
@@ -142,8 +290,28 @@ function App() {
       .map((category) => byCategory.get(category))
       .filter(Boolean);
     const extras = [...byCategory.values()].filter((item) => !categoryIcons[item.category]);
-    return [...ordered, ...extras];
-  }, [suggestion, manualSelections]);
+    return [...ordered, ...extras].map((item) => ({
+      ...item,
+      quantity: quantities[item.category] || item.quantity || 1
+    }));
+  }, [suggestion, manualSelections, removedCategories, quantities]);
+
+  const sortedProducts = useMemo(() => {
+    const categoryRank = new Map((meta?.categories || []).map((category, index) => [category.name, index]));
+    const hasFavourite = (group) => group.offers?.some((offer) => favouriteIds.has(offer.id));
+    const sorted = [...products];
+    sorted.sort((a, b) => {
+      if (filters.sort === "price-desc") return (b.minPrice ?? -1) - (a.minPrice ?? -1);
+      if (filters.sort === "category-az") return a.category.localeCompare(b.category) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+      if (filters.sort === "category-order") {
+        return (categoryRank.get(a.category) ?? 999) - (categoryRank.get(b.category) ?? 999) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+      }
+      if (filters.sort === "favourites") return Number(hasFavourite(b)) - Number(hasFavourite(a)) || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+      if (filters.sort === "store") return (a.bestOffer?.store || "").localeCompare(b.bestOffer?.store || "") || (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+      return (a.minPrice ?? 999999999) - (b.minPrice ?? 999999999);
+    });
+    return sorted;
+  }, [products, filters.sort, favouriteIds, meta]);
 
   function showToast(message) {
     setToast(message);
@@ -154,6 +322,11 @@ function App() {
     const data = await api("/api/favourites");
     setFavourites(data.groups || []);
     setFavouriteIds(new Set(data.ids || []));
+  }
+
+  async function refreshBuilds() {
+    const buildData = await api("/api/builds");
+    setBuilds(buildData.builds || []);
   }
 
   async function toggleFavourite(productId) {
@@ -170,8 +343,28 @@ function App() {
 
   function addToBuild(product) {
     setManualSelections((current) => ({ ...current, [product.category]: product }));
+    setRemovedCategories((current) => {
+      const next = new Set(current);
+      next.delete(product.category);
+      return next;
+    });
+    setQuantities((current) => ({ ...current, [product.category]: current[product.category] || 1 }));
     setPage("build");
     showToast(`${product.category} added to build`);
+  }
+
+  function updateQuantity(category, quantity) {
+    setQuantities((current) => ({ ...current, [category]: Math.max(1, Math.min(99, Number(quantity) || 1)) }));
+  }
+
+  function removeBuildItem(category) {
+    setManualSelections((current) => {
+      const next = { ...current };
+      delete next[category];
+      return next;
+    });
+    setRemovedCategories((current) => new Set(current).add(category));
+    showToast(`${category} removed from build`);
   }
 
   function exportRows() {
@@ -179,7 +372,9 @@ function App() {
       Category: item.category,
       Product: item.product.name,
       Store: item.product.store,
+      Quantity: item.quantity || 1,
       Price: item.product.price || "",
+      Total: (item.product.price || 0) * (item.quantity || 1),
       Stock: item.product.stock,
       URL: item.product.productUrl
     }));
@@ -198,13 +393,11 @@ function App() {
   function exportExcel() {
     const rows = exportRows();
     const headers = Object.keys(rows[0] || { Category: "", Product: "", Store: "", Price: "", Stock: "", URL: "" });
-    const escape = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-    const table = `<html><head><meta charset="UTF-8" /></head><body><table><thead><tr>${headers.map((header) => `<th>${escape(header)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${headers.map((header) => `<td>${escape(row[header])}</td>`).join("")}</tr>`).join("")}</tbody></table></body></html>`;
-    downloadBlob(table, "pc-build.xls", "application/vnd.ms-excel;charset=utf-8");
+    downloadBlob(createXlsxBlob(rows, headers), "pc-build.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   }
 
   function downloadBlob(content, filename, type) {
-    const blob = new Blob([content], { type });
+    const blob = content instanceof Blob ? content : new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -214,29 +407,58 @@ function App() {
   }
 
   async function saveBuild() {
-    const response = await fetch("/api/builds", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: `Best value build ${new Date().toLocaleDateString()}`, budget, items: buildRows })
-    });
-    const data = await response.json();
-    const buildData = await api("/api/builds");
-    setBuilds(buildData.builds || []);
-    showToast(`Saved build #${data.id}`);
+    try {
+      setSavingBuild(true);
+      const response = await fetch("/api/builds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: buildName.trim() || `Saved build ${new Date().toLocaleDateString()}`,
+          budget,
+          preferredStore,
+          items: buildRows
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Request failed: ${response.status}`);
+      await refreshBuilds();
+      showToast(`Saved build #${data.id}`);
+    } catch (error) {
+      showToast(error.message || "Failed to save build");
+    } finally {
+      setSavingBuild(false);
+    }
+  }
+
+  async function deleteBuild(buildId) {
+    try {
+      setDeletingBuildIds((current) => new Set(current).add(buildId));
+      await api(`/api/builds/${buildId}`, { method: "DELETE" });
+      await refreshBuilds();
+      showToast(`Deleted build #${buildId}`);
+    } catch (error) {
+      showToast(error.message || `Failed to delete build #${buildId}`);
+    } finally {
+      setDeletingBuildIds((current) => {
+        const next = new Set(current);
+        next.delete(buildId);
+        return next;
+      });
+    }
   }
 
   function renderPage() {
     if (loading) return <div className="grid min-h-[50vh] place-items-center text-slate-400">Loading PC parts...</div>;
     if (page === "parts") {
-      return <BrowseParts filters={filters} setFilters={setFilters} categories={categories} stores={meta?.stores || []} products={products} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
+      return <BrowseParts filters={filters} setFilters={setFilters} categories={categories} stores={meta?.stores || []} products={sortedProducts} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
     }
     if (page === "build") {
-      return <BestValueBuild budget={budget} setBudget={setBudget} rows={buildRows} suggestion={suggestion} manualSelections={manualSelections} saveBuild={saveBuild} exportCsv={exportCsv} exportExcel={exportExcel} />;
+      return <BestValueBuild buildName={buildName} setBuildName={setBuildName} savingBuild={savingBuild} budget={budget} setBudget={setBudget} preferredStore={preferredStore} setPreferredStore={setPreferredStore} stores={meta?.stores || []} rows={buildRows} suggestion={suggestion} manualSelections={manualSelections} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} saveBuild={saveBuild} exportCsv={exportCsv} exportExcel={exportExcel} />;
     }
     if (page === "favourites") {
       return <Favourites groups={favourites} favouriteIds={favouriteIds} toggleFavourite={toggleFavourite} addToBuild={addToBuild} />;
     }
-    if (page === "builds") return <SavedBuilds builds={builds} />;
+    if (page === "builds") return <SavedBuilds builds={builds} deleteBuild={deleteBuild} deletingBuildIds={deletingBuildIds} />;
     if (page === "news") return <NewsPanel news={news} reloadNews={() => api("/api/news").then((data) => setNews(data.items || []))} />;
     return <AdminPanel providers={providers} showToast={showToast} reloadMeta={() => api("/api/meta").then(setMeta)} />;
   }
@@ -295,7 +517,7 @@ function BrowseParts({ filters, setFilters, categories, stores, products, favour
     <section className="space-y-5">
       <PageTitle eyebrow="Parts catalogue" title="Shop matched PC parts" action={<MetricPill icon={Gauge} label={`${products.length} matched groups`} />} />
       <div className="panel p-4">
-        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
+        <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1fr]">
           <label className="filter-field">
             <Search size={17} />
             <input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Search CPUs, GPUs, stores..." />
@@ -312,6 +534,14 @@ function BrowseParts({ filters, setFilters, categories, stores, products, favour
             <option value="">Any stock</option>
             <option value="in">In stock</option>
             <option value="out">Out / unknown</option>
+          </SelectField>
+          <SelectField icon={Table2} value={filters.sort} onChange={(sort) => setFilters((current) => ({ ...current, sort }))}>
+            <option value="price-asc">Price: low to high</option>
+            <option value="price-desc">Price: high to low</option>
+            <option value="category-order">Category order</option>
+            <option value="category-az">Category A-Z</option>
+            <option value="favourites">Favourites first</option>
+            <option value="store">Store A-Z</option>
           </SelectField>
         </div>
       </div>
@@ -378,47 +608,71 @@ function ProductCard({ group, favouriteIds, toggleFavourite, addToBuild }) {
   );
 }
 
-function BestValueBuild({ budget, setBudget, rows, suggestion, manualSelections, saveBuild, exportCsv, exportExcel }) {
-  const total = rows.reduce((sum, item) => sum + (item.product.price || 0), 0);
+function BestValueBuild({ buildName, setBuildName, savingBuild, budget, setBudget, preferredStore, setPreferredStore, stores, rows, suggestion, manualSelections, updateQuantity, removeBuildItem, saveBuild, exportCsv, exportExcel }) {
+  const total = rows.reduce((sum, item) => sum + ((item.product.price || 0) * (item.quantity || 1)), 0);
   const remaining = (suggestion?.budget || budget) - total;
   const manualCount = Object.keys(manualSelections).length;
   return (
     <section className="space-y-5">
-      <PageTitle eyebrow="Build workspace" title="Selected component build" action={<div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={exportCsv}><Download size={16} /> CSV</button><button className="btn-secondary" onClick={exportExcel}><Table2 size={16} /> Excel</button><button className="btn-primary" onClick={saveBuild}><Save size={16} /> Save</button></div>}>{manualCount ? `${manualCount} slot${manualCount === 1 ? "" : "s"} manually selected from the catalogue.` : "Start from the suggested build, or add parts from Parts and Favourites to replace slots."}</PageTitle>
+      <PageTitle eyebrow="Build workspace" title="Selected component build" action={<div className="flex flex-wrap gap-2"><button className="btn-secondary" onClick={exportCsv}><Download size={16} /> CSV</button><button className="btn-secondary" onClick={exportExcel}><Table2 size={16} /> Excel</button><button className="btn-primary" disabled={savingBuild} onClick={saveBuild}><Save size={16} /> {savingBuild ? "Saving..." : "Save"}</button></div>}>{manualCount ? `${manualCount} slot${manualCount === 1 ? "" : "s"} manually selected from the catalogue.` : "Start from the suggested build, or add parts from Parts and Favourites to replace slots."}</PageTitle>
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr_1fr]">
         <div className="panel p-5">
           <div className="flex items-center justify-between gap-3">
             <div><p className="text-sm font-bold text-slate-400">Budget</p><p className="text-3xl font-black tracking-tight text-white">{formatPrice(budget)}</p></div>
             <ShoppingCart className="text-cyan-300" size={26} />
           </div>
-          <input className="mt-5 w-full accent-cyan-300" type="range" min="150000" max="1200000" step="25000" value={budget} onChange={(event) => setBudget(Number(event.target.value))} />
+          <input className="mt-5 w-full accent-cyan-300" type="range" min="150000" max="10000000" step="50000" value={budget} onChange={(event) => setBudget(Number(event.target.value))} />
         </div>
         <SummaryCard label="Selected parts" value={rows.length} />
         <SummaryCard label="Estimated total" value={formatPrice(total)} />
         <SummaryCard label={remaining >= 0 ? "Remaining" : "Over budget"} value={formatPrice(Math.abs(remaining))} tone={remaining >= 0 ? "good" : "bad"} />
       </div>
-      <BuildTable rows={rows} />
+      <div className="panel p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_2fr] md:items-center">
+          <div>
+            <p className="text-sm font-bold text-slate-400">Build name</p>
+            <p className="mt-1 text-sm font-semibold text-slate-300">Choose the name that will appear in saved builds.</p>
+          </div>
+          <label className="filter-field">
+            <Save size={17} />
+            <input value={buildName} onChange={(event) => setBuildName(event.target.value)} placeholder="Example: 7800X3D gaming build" />
+          </label>
+        </div>
+      </div>
+      <div className="panel p-4">
+        <div className="grid gap-3 md:grid-cols-[1fr_2fr] md:items-center">
+          <div>
+            <p className="text-sm font-bold text-slate-400">Store mode</p>
+            <p className="mt-1 text-sm font-semibold text-slate-300">{preferredStore ? `Suggestions are limited to ${preferredStore}.` : "Suggestions can use the best offers across all stores."}</p>
+          </div>
+          <SelectField icon={Store} value={preferredStore} onChange={setPreferredStore}>
+            <option value="">Best offer from any store</option>
+            {stores.map((store) => <option key={store.name} value={store.name}>{store.name}</option>)}
+          </SelectField>
+        </div>
+      </div>
+      <BuildTable rows={rows} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} />
     </section>
   );
 }
 
-function BuildTable({ rows }) {
+function BuildTable({ rows, updateQuantity, removeBuildItem }) {
   return (
     <div className="panel overflow-hidden">
       <div className="border-b border-white/10 px-5 py-4"><h2 className="text-lg font-black text-white">Build components</h2></div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px] text-left">
           <thead className="bg-white/[0.04] text-xs font-black uppercase tracking-[0.12em] text-slate-400">
-            <tr><th className="w-56 px-5 py-4">Category</th><th className="px-5 py-4">Part</th><th className="w-40 px-5 py-4">Store</th><th className="w-40 px-5 py-4">Price</th><th className="w-56 px-5 py-4">Stock</th><th className="w-36 px-5 py-4 text-right">Action</th></tr>
+            <tr><th className="w-52 px-5 py-4">Category</th><th className="px-5 py-4">Part</th><th className="w-36 px-5 py-4">Store</th><th className="w-32 px-5 py-4">Price</th><th className="w-28 px-5 py-4">Qty</th><th className="w-40 px-5 py-4">Stock</th><th className="w-44 px-5 py-4 text-right">Action</th></tr>
           </thead>
-          <tbody className="divide-y divide-white/10">{rows.map((item) => <BuildRow key={item.category} item={item} />)}</tbody>
+          <tbody className="divide-y divide-white/10">{rows.map((item) => <BuildRow key={item.category} item={item} updateQuantity={updateQuantity} removeBuildItem={removeBuildItem} />)}</tbody>
         </table>
       </div>
     </div>
   );
 }
 
-function BuildRow({ item }) {
+function BuildRow({ item, updateQuantity, removeBuildItem }) {
   const Icon = categoryIcons[item.category] || Box;
   return (
     <tr className="align-middle">
@@ -426,8 +680,16 @@ function BuildRow({ item }) {
       <td className="px-5 py-4"><div className="flex items-center gap-3"><img className="h-14 w-14 rounded-xl border border-white/10 bg-slate-950 object-contain" src={item.product.imageUrl || "/static/img/placeholder.svg"} alt="" /><span className="max-w-md font-semibold leading-5 text-slate-200">{item.product.name}</span></div></td>
       <td className="px-5 py-4"><StoreBadge store={item.product.store} /></td>
       <td className="px-5 py-4 text-base font-black text-cyan-100 whitespace-nowrap">{formatPrice(item.product.price)}</td>
+      <td className="px-5 py-4">
+        <input className="qty-input" type="number" min="1" max="99" value={item.quantity || 1} onChange={(event) => updateQuantity(item.category, event.target.value)} />
+      </td>
       <td className="px-5 py-4"><StockBadge stock={item.product.stock} /></td>
-      <td className="px-5 py-4 text-right"><a className="btn-secondary inline-flex" href={item.product.productUrl || "#"} target="_blank" rel="noreferrer">View <ExternalLink size={16} /></a></td>
+      <td className="px-5 py-4 text-right">
+        <div className="flex justify-end gap-2">
+          <a className="btn-secondary inline-flex" href={item.product.productUrl || "#"} target="_blank" rel="noreferrer">View <ExternalLink size={16} /></a>
+          <button className="icon-btn" onClick={() => removeBuildItem(item.category)} title="Remove item"><Trash2 size={16} /></button>
+        </div>
+      </td>
     </tr>
   );
 }
@@ -441,27 +703,30 @@ function Favourites({ groups, favouriteIds, toggleFavourite, addToBuild }) {
   );
 }
 
-function SavedBuilds({ builds }) {
+function SavedBuilds({ builds, deleteBuild, deletingBuildIds }) {
   return (
     <section className="space-y-5">
       <PageTitle eyebrow="Saved configs" title="Builds">{builds.length ? "Saved suggested builds and their selected parts." : "Save a suggested build from the Builder tab to see it here."}</PageTitle>
-      {builds.length ? <div className="grid gap-4 lg:grid-cols-2">{builds.map((build) => <BuildCard key={build.id} build={build} />)}</div> : <EmptyState title="No saved builds yet" copy="Use the Builder tab to generate and save a parts list." />}
+      {builds.length ? <div className="grid gap-4 lg:grid-cols-2">{builds.map((build) => <BuildCard key={build.id} build={build} deleteBuild={deleteBuild} deleting={deletingBuildIds.has(build.id)} />)}</div> : <EmptyState title="No saved builds yet" copy="Use the Builder tab to generate and save a parts list." />}
     </section>
   );
 }
 
-function BuildCard({ build }) {
+function BuildCard({ build, deleteBuild, deleting }) {
   return (
     <article className="card p-5">
       <div className="flex items-start justify-between gap-4">
-        <div><p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Build #{build.id}</p><h2 className="mt-1 text-xl font-black text-white">{build.name}</h2><p className="mt-1 text-sm font-semibold text-slate-400">{new Date(build.created_at).toLocaleString()}</p></div>
-        <p className="rounded-xl bg-cyan-300/10 px-3 py-2 text-sm font-black text-cyan-100">{formatPrice(build.total)}</p>
+        <div><p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">Build #{build.id}</p><h2 className="mt-1 text-xl font-black text-white">{build.name}</h2><p className="mt-1 text-sm font-semibold text-slate-400">{new Date(build.created_at).toLocaleString()}</p>{build.preferred_store ? <p className="mt-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-300">{build.preferred_store} only</p> : null}</div>
+        <div className="flex shrink-0 items-center gap-2">
+          <p className="rounded-xl bg-cyan-300/10 px-3 py-2 text-sm font-black text-cyan-100">{formatPrice(build.total)}</p>
+          <button className="icon-btn" type="button" disabled={deleting} onClick={() => deleteBuild(build.id)} title="Delete build"><Trash2 size={16} /></button>
+        </div>
       </div>
       <div className="mt-4 space-y-2">
         {build.items.map((item) => (
           <a key={item.id} href={item.product_url || "#"} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-sm">
             <span className="line-clamp-2 font-semibold text-slate-200">{item.category}: {item.name}</span>
-            <span className="shrink-0 font-black text-cyan-100">{formatPrice(item.selected_price)}</span>
+            <span className="shrink-0 font-black text-cyan-100">{item.quantity > 1 ? `${item.quantity} x ` : ""}{formatPrice(item.selected_price)}</span>
           </a>
         ))}
       </div>

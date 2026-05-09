@@ -68,14 +68,14 @@ class GameStreetProvider(BaseStoreProvider):
                 if len(name) < 4:
                     continue
                 text = card.get_text(" ", strip=True)
-                availability = self._product_page_availability(product_url) if product_url else ""
+                availability = _listing_availability(text)
                 seen_urls.add(product_url)
                 yield ProductRecord(
                     name=name,
                     store=self.store_name,
                     category=category,
                     price_lkr=parse_lkr_price(price_el.get_text(" ", strip=True) if price_el else text),
-                    availability=availability or ("Out of Stock" if re.search(r"out of stock", text, re.I) else "Unknown"),
+                    availability=availability,
                     warranty=_extract_warranty(text),
                     image_url=self.absolute_url(image_el.get("src") or image_el.get("data-src") or "") if image_el else "",
                     product_url=product_url or url,
@@ -105,6 +105,14 @@ class GameStreetProvider(BaseStoreProvider):
 def _extract_warranty(text: str) -> str:
     match = re.search(r"(\d+\s*(?:year|years|month|months)\s*warranty)", text, re.I)
     return match.group(1) if match else ""
+
+
+def _listing_availability(text: str) -> str:
+    if re.search(r"\bout\s+of\s+stock\b", text, re.I):
+        return "Out of Stock"
+    if re.search(r"\bin\s+stock\b", text, re.I):
+        return "In Stock"
+    return "Unknown"
 
 
 def _normalize_availability(value: str) -> str:

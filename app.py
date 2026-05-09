@@ -450,7 +450,7 @@ VALID_ADMIN_STATUS_KINDS = {"import", "refresh"}
 VALID_ADMIN_STATUS_STATES = {"success", "failed"}
 
 
-def upsert_products(db: Session, records) -> int:
+def upsert_products(db: Session, records, price_stock_only: bool = False) -> int:
     count = 0
     for record in records:
         record = record.normalized()
@@ -462,24 +462,28 @@ def upsert_products(db: Session, records) -> int:
             product = find_existing_listing(db, record)
         if product is not None and is_manual_source(record.source) and not is_manual_source(product.source):
             continue
+        if price_stock_only and product is None:
+            continue
         if product is None:
             product = Product(store=record.store, dedupe_key=key, name=record.name, category=record.category)
             db.add(product)
-        product.name = record.name
-        product.category = normalize_category(record.category)
         product.price_lkr = record.price_lkr
         product.previous_price_lkr = record.previous_price_lkr if record.previous_price_lkr and record.price_lkr and record.previous_price_lkr > record.price_lkr else None
         product.discount_label = record.discount_label or discount_label(product.previous_price_lkr, product.price_lkr)
         product.availability = record.availability or "Unknown"
-        product.warranty = record.warranty or ""
-        product.image_url = record.image_url or PLACEHOLDER_IMAGE
-        product.product_url = record.product_url or ""
-        product.last_updated = record.last_updated or datetime.now(timezone.utc)
-        product.notes = product.notes or record.notes or ""
-        product.source = record.source or ""
+        if not price_stock_only:
+            product.name = record.name
+            product.category = normalize_category(record.category)
+            product.warranty = record.warranty or ""
+            product.image_url = record.image_url or PLACEHOLDER_IMAGE
+            product.product_url = record.product_url or ""
+            product.last_updated = record.last_updated or datetime.now(timezone.utc)
+            product.notes = product.notes or record.notes or ""
+            product.source = record.source or ""
         count += 1
     db.flush()
-    collapse_same_store_duplicates(db)
+    if not price_stock_only:
+        collapse_same_store_duplicates(db)
     db.commit()
     return count
 
@@ -1280,13 +1284,13 @@ def refresh_provider(provider_name: str, request: Request, db: Annotated[Session
     if not provider_cls:
         raise HTTPException(404)
     try:
-        count = upsert_products(db, provider_cls().iter_products(limit=300))
+        count = upsert_products(db, provider_cls().iter_products(limit=300), price_stock_only=True)
         query = urlencode(
             {
                 "kind": "refresh",
                 "subject": provider_name,
                 "state": "success",
-                "message": f"Refreshed {count} products from {provider_cls.store_name}.",
+                "message": f"Updated price and stock for {count} existing products from {provider_cls.store_name}.",
             }
         )
     except Exception as exc:
