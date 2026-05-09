@@ -5,44 +5,23 @@
   <div>
     <p class="eyebrow">Saved shortlist</p>
     <h1>Favourites</h1>
-    <p class="hero-copy">Products you have marked for build planning or price checks.</p>
+    <p class="hero-copy">Products you have marked for build planning or quick price checks across stores.</p>
   </div>
   <a class="hero-action" href="/">Browse catalogue</a>
 </section>
 
-<section class="product-grid">
-  {% for p in products %}
-  <article class="product-card">
-    {% set has_image = p.image_url and p.image_url != '/static/img/placeholder.svg' %}
-    <div class="product-media {% if not has_image %}no-image{% endif %}">
-      {% if has_image %}
-      <img src="{{ p.image_url }}" onerror="this.closest('.product-media').classList.add('image-failed'); this.remove();" alt="{{ p.name }}">
-      {% else %}
-      <div class="component-placeholder"><span>{{ ui.category_icon(p.category) }}</span><small>Image unavailable</small></div>
-      {% endif %}
-    </div>
-    <div class="product-body">
-      <div class="badge-row">
-        <span class="pill store-pill">{{ p.store }}</span>
-        <span class="pill category-pill">{{ ui.category_icon(p.category) }} {{ p.category }}</span>
-      </div>
-      <h3>{{ p.name }}</h3>
-      <span class="stock-badge {{ ui.stock_class(p.availability) }}">{{ p.availability or "Unknown" }}</span>
-      <p class="price">{% if p.price_lkr %}LKR {{ "{:,}".format(p.price_lkr) }}{% else %}Price not listed{% endif %}</p>
-      <div class="actions card-actions">
-        <a class="ghost-btn compact" href="/builds">Add to build</a>
-        <a class="ghost-btn compact" href="/compare?q={{ p.name }}">Compare</a>
-        {% if p.product_url %}<a class="primary-link" href="{{ p.product_url }}" target="_blank">View details</a>{% endif %}
-      </div>
-    </div>
-  </article>
-  {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">FV</div>
-    <h2>No favourites yet</h2>
-    <p>Mark products from the catalogue and they will stay here after restart.</p>
-    <a class="primary-btn" href="/">Browse catalogue</a>
-  </div>
+<section class="product-grid" data-favourites-grid>
+  {% for card in product_cards %}
+  {{ ui.product_card(card, favourite_ids, true) }}
   {% endfor %}
 </section>
+
+<div class="empty-state {% if product_cards %}hidden{% endif %}" data-favourites-empty>
+  <div class="empty-icon">FV</div>
+  <h2>No favourite products yet</h2>
+  <p>Save parts from the catalogue and they will stay here for build planning, comparison, and price checks.</p>
+  <a class="primary-btn" href="/">Browse catalogue</a>
+</div>
+
+{{ ui.product_details_modal() }}
 {% endblock %}

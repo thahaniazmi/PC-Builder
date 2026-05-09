@@ -70,6 +70,19 @@ function syncFavouriteButtons(productId, isActive) {
     modalFav.classList.toggle("active", isActive);
     modalFav.textContent = isActive ? "Favourited" : "Favourite";
   }
+
+  const favouriteGrid = document.querySelector("[data-favourites-grid]");
+  if (favouriteGrid && !isActive) {
+    document.querySelectorAll(`[data-product-card][data-product-id="${productId}"]`).forEach((card) => {
+      card.remove();
+    });
+    const hasCards = favouriteGrid.querySelector("[data-product-card]");
+    document.querySelector("[data-favourites-empty]")?.classList.toggle("hidden", Boolean(hasCards));
+    if (!hasCards) {
+      favouriteGrid.classList.add("hidden");
+      document.querySelector("[data-details-modal]")?.close();
+    }
+  }
 }
 
 const detailsCache = new Map();
@@ -184,12 +197,21 @@ document.addEventListener("click", async (event) => {
 
 document.addEventListener("change", (event) => {
   const mode = event.target.closest("[data-selection-method]");
-  if (!mode) return;
-  const form = mode.closest("form");
-  const manual = form?.querySelector("[data-manual-offer]");
-  const preferred = form?.querySelector("[data-preferred-store]");
-  if (manual) manual.style.display = mode.value === "manual" ? "" : "none";
-  if (preferred) preferred.style.display = mode.value === "preferred_store" ? "" : "none";
+  if (mode) {
+    const form = mode.closest("form");
+    const manual = form?.querySelector("[data-manual-offer]");
+    const preferred = form?.querySelector("[data-preferred-store]");
+    if (manual) manual.style.display = mode.value === "manual" ? "" : "none";
+    if (preferred) preferred.style.display = mode.value === "preferred_store" ? "" : "none";
+  }
+
+  const fileInput = event.target.closest("[data-admin-file]");
+  if (fileInput) {
+    const label = document.querySelector("[data-admin-file-name]");
+    if (label) {
+      label.textContent = fileInput.files?.[0]?.name || "No file selected";
+    }
+  }
 });
 
 document.addEventListener("click", (event) => {
@@ -202,4 +224,40 @@ document.addEventListener("click", (event) => {
 
 document.querySelectorAll("[data-selection-method]").forEach((select) => {
   select.dispatchEvent(new Event("change", { bubbles: true }));
+});
+
+document.querySelector("[data-admin-import-form]")?.addEventListener("submit", (event) => {
+  const button = event.currentTarget.querySelector("[data-admin-submit]");
+  const status = event.currentTarget.closest(".admin-card")?.querySelector(".admin-action-status");
+  if (button) {
+    button.textContent = "Importing...";
+    button.disabled = true;
+  }
+  if (status) {
+    status.textContent = "Importing file...";
+  }
+});
+
+document.querySelectorAll("[data-provider-form]").forEach((form) => {
+  form.addEventListener("submit", () => {
+    const card = form.closest("[data-provider-card]");
+    const status = card?.querySelector("[data-provider-status]");
+    const copy = card?.querySelector("[data-provider-copy]");
+    const button = form.querySelector("[data-provider-submit]");
+    if (status) {
+      status.className = "admin-status status-loading";
+      status.textContent = "Loading";
+    }
+    if (card) {
+      card.classList.remove("provider-card-success", "provider-card-failed");
+      card.classList.add("provider-card-loading");
+    }
+    if (copy) {
+      copy.textContent = "Refreshing provider data...";
+    }
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Refreshing...";
+    }
+  });
 });

@@ -77,31 +77,47 @@ def parse_lkr_price(value: object) -> Optional[int]:
 
 
 def normalize_category(category: object) -> str:
-    text = (str(category or "Other").strip() or "Other").lower()
-    mapping = {
-        "processor": "Processors / CPUs",
-        "cpu": "Processors / CPUs",
-        "motherboard": "Motherboards",
-        "memory": "RAM",
+    raw = str(category or "Other").strip() or "Other"
+    text = raw.lower()
+    normalized_text = re.sub(r"[^a-z0-9+]+", " ", text)
+
+    exact = {
+        "processors cpus": "Processors / CPUs",
+        "motherboards": "Motherboards",
         "ram": "RAM",
-        "graphics": "Graphics Cards / GPUs",
-        "gpu": "Graphics Cards / GPUs",
-        "storage": "SSDs / HDDs",
-        "ssd": "SSDs / HDDs",
-        "hdd": "SSDs / HDDs",
-        "power": "Power Supplies",
-        "psu": "Power Supplies",
-        "casing": "Casing",
+        "graphics cards gpus": "Graphics Cards / GPUs",
+        "ssds hdds": "SSDs / HDDs",
+        "power supplies": "Power Supplies",
         "case": "Casing",
-        "cooling": "Coolers",
-        "cooler": "Coolers",
-        "monitor": "Monitors",
-        "keyboard": "Keyboards / Mice",
-        "mouse": "Keyboards / Mice",
-        "prebuilt": "Prebuilt PCs",
-        "desktop": "Prebuilt PCs",
+        "casing": "Casing",
+        "casings": "Casing",
+        "coolers": "Coolers",
+        "monitors": "Monitors",
+        "keyboards": "Keyboards",
+        "mice": "Mice",
+        "headsets": "Headsets",
+        "speakers headsets": "Speakers & Headsets",
+        "keyboards mice": "Keyboards / Mice",
     }
-    for key, normalized in mapping.items():
-        if key in text:
+    if normalized_text in exact:
+        return exact[normalized_text]
+
+    rules = [
+        (r"\b(processors?|cpus?)\b", "Processors / CPUs"),
+        (r"\bmotherboards?\b", "Motherboards"),
+        (r"\b(memory|ram|ddr[345]?|sodimm|so dimm)\b", "RAM"),
+        (r"\b(graphics?|gpus?|vga)\b", "Graphics Cards / GPUs"),
+        (r"\b(ssds?|hdds?|storage|nvme|m\.?2)\b", "SSDs / HDDs"),
+        (r"\b(power supplies|power supply|psus?)\b", "Power Supplies"),
+        (r"\b(casings?|pc cases?|computer cases?|atx cases?|mid tower|micro tower|mini tower|chassis|cabinets?)\b", "Casing"),
+        (r"\b(cooling|coolers?|cpu coolers?|fans?)\b", "Coolers"),
+        (r"\bmonitors?\b", "Monitors"),
+        (r"\bkeyboards?\b", "Keyboards"),
+        (r"\b(mice|mouse)\b", "Mice"),
+        (r"\b(headsets?|headphones?)\b", "Headsets"),
+        (r"\b(prebuilt|desktop workstations?|desktop pcs?)\b", "Prebuilt PCs"),
+    ]
+    for pattern, normalized in rules:
+        if re.search(pattern, text):
             return normalized
-    return str(category or "Other").strip() or "Other"
+    return raw

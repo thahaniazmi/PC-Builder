@@ -1,47 +1,64 @@
 {% extends "base.html" %}
 {% import "components.html" as ui %}
 {% block content %}
-<section class="page-hero">
+<section class="page-hero value-hero">
   <div>
-    <p class="eyebrow">Budget intelligence</p>
+    <p class="eyebrow">Market watch</p>
     <h1>Best Value</h1>
-    <p class="hero-copy">Quick lowest-price picks by category and a budget-aware starter build.</p>
+    <p class="hero-copy">Local lowest-price picks plus current PC hardware news that can affect RAM, GPU, motherboard, and component prices.</p>
   </div>
 </section>
 
-<form class="filters filter-bar">
-  <label class="field price-field">
-    <span>Budget</span>
-    <input type="number" name="budget" value="{{ budget }}">
-  </label>
-  <button class="primary-btn">Suggest build</button>
-</form>
-
-<section class="panel">
-  <h2>Cheapest Available Build</h2>
-  <p class="price">LKR {{ "{:,}".format(build.total) }} - {{ "Within budget" if build.within_budget else "Over budget" }}</p>
-  {% for p in build.parts %}<p>{{ p.category }}: {{ p.name }} <span class="muted">{{ p.store }} - LKR {{ "{:,}".format(p.price_lkr or 0) }}</span></p>{% endfor %}
-  {% for warning in build.warnings %}<p class="warning">{{ warning }}</p>{% endfor %}
-</section>
-
-<section class="product-grid">
-  {% for p in best_value %}
-  <article class="product-card compact">
-    {% set has_image = p.image_url and p.image_url != '/static/img/placeholder.svg' %}
-    <div class="product-media {% if not has_image %}no-image{% endif %}">
-      {% if has_image %}
-      <img src="{{ p.image_url }}" onerror="this.closest('.product-media').classList.add('image-failed'); this.remove();" alt="{{ p.name }}">
-      {% else %}
-      <div class="component-placeholder"><span>{{ ui.category_icon(p.category) }}</span><small>Image unavailable</small></div>
-      {% endif %}
+<div class="value-shell">
+  <section class="market-insights-card market-news-card">
+    <div class="value-card-head">
+      <div>
+        <p class="admin-kicker">News</p>
+        <h2>Hardware Market News</h2>
+      </div>
+      <span class="news-asof">Checked May 9, 2026</span>
     </div>
-    <div class="product-body">
-      <span class="pill category-pill">{{ ui.category_icon(p.category) }} {{ p.category }}</span>
-      <h3>{{ p.name }}</h3>
-      <p class="muted">{{ p.store }}</p>
-      <p class="price">LKR {{ "{:,}".format(p.price_lkr or 0) }}</p>
+    <div class="market-insight-list market-news-grid">
+      {% for item in market_news %}
+      <article class="market-insight market-{{ item.tone }}">
+        <div class="market-insight-top">
+          <span>{{ item.category }} - {{ item.date }}</span>
+          <strong>{{ item.headline }}</strong>
+        </div>
+        <p>{{ item.summary }}</p>
+        <div class="market-source-row">
+          {% for source in item.sources %}
+          <a href="{{ source.url }}" target="_blank" rel="noreferrer">{{ source.label }}</a>
+          {% endfor %}
+        </div>
+      </article>
+      {% endfor %}
     </div>
-  </article>
-  {% endfor %}
-</section>
+  </section>
+
+  <section class="value-picks">
+    <div class="value-section-head">
+      <div>
+        <p class="admin-kicker">Lowest local listings</p>
+        <h2>Best Value by Category</h2>
+      </div>
+    </div>
+    <div class="value-pick-grid">
+      {% for p in best_value %}
+      <article class="value-pick-card">
+        {{ ui.product_image(p.image_url, p.name, p.category, "value-pick-image") }}
+        <div class="value-pick-body">
+          <span class="pill category-pill">{{ ui.category_icon(p.category) }} {{ display_category(p.category) }}</span>
+          <h3 title="{{ p.name }}">{{ p.name }}</h3>
+          <p class="muted">{{ p.store }}</p>
+          <p class="price">LKR {{ "{:,}".format(p.price_lkr or 0) }}</p>
+          <button class="primary-link compact" type="button" data-modal-open data-details-id="{{ p.id }}">View details</button>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+</div>
+
+{{ ui.product_details_modal() }}
 {% endblock %}

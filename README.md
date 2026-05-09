@@ -1,59 +1,48 @@
 # PC Builder
 
-Local FastAPI + SQLite app for comparing PC parts and planning builds from Sri Lankan stores. It includes Nanotek, Game Street, TecRoot, and Disrupt, and the provider structure is ready for more stores.
+Modern local PC parts and PC builder app built with React, Vite, Tailwind CSS, Node.js, Express, and SQLite.
 
 ## Start
 
 Double-click `start_app.bat`.
 
-The script creates `.venv`, installs `requirements.txt`, initializes `data/pc_builder.sqlite3`, imports the provided workbook if found at `C:\Users\study\Downloads\PC Build\pc_components_vendor_pricing.xlsx`, then opens `http://localhost:8000`.
+The launcher installs Node dependencies when needed, starts the Express API at `http://127.0.0.1:3001`, starts the Vite frontend at `http://127.0.0.1:5173`, and opens the app in your browser.
 
-## Import Products
+## Stack
 
-Use **Admin -> Import CSV/Excel** in the app. Accepted columns are flexible, but these are preferred:
+- Frontend: React + Vite + Tailwind CSS
+- Backend: Node.js + Express
+- Database: `data/pc_builder.sqlite3`
 
-`Vendor, Category, Product Name, Current Price (LKR), Stock Availability, Warranty, Product URL, Image URL, Specs / Notes`
+## Features
 
-A sample file is included at `sample_import.csv`.
+- Browse matched product groups while keeping each store offer separate.
+- Filter by category, store, stock status, and search text.
+- Product cards show square images, store badges, all store prices, stock, and actions.
+- Best Value Build suggests only valid PC components.
+- Suggested build rows show category, thumbnail, product, store, price, stock, and Change/View.
+- Save Build, Export CSV, and Export Excel actions.
 
-## Refresh Store Data
+## Backend Notes
 
-Use **Admin -> Refresh** for any configured store or run:
+The backend reads the existing SQLite tables and keeps vendor listings as separate rows. Similar products are grouped at the API layer using normalized product signatures, so Nanotek, GameStreet, Tecroot, Disrupt, and future stores can show side-by-side prices without losing the original offer rows.
+
+Build suggestions use strict component categories:
+
+`Processors / CPUs`, `Motherboards`, `RAM`, `Graphics Cards / GPUs`, `SSDs / HDDs`, `Power Supplies`, `Casing`, `Coolers`
+
+Accessories, posters, holders, brackets, mounts, stands, cables, external enclosures, and non-component products are excluded from suggestions.
+
+## Development
 
 ```powershell
-.venv\Scripts\python.exe scripts\refresh_products.py
+npm install
+npm run server
+npm run client
 ```
 
-The scrapers are modular and conservative. Store sites change often, so selectors in `stores/nanotek.py` and `stores/gamestreet.py` may need small adjustments. Disrupt uses its Shopify product endpoints. TecRoot currently blocks direct local scraping, so `stores/tecroot.py` uses 37Left's public indexed TecRoot listings while preserving original TecRoot product URLs. The scraper keeps product source URLs and uses delays to avoid aggressive requests.
+Build the frontend:
 
-## Add A New Store
-
-1. Create `stores/new_store.py`.
-2. Subclass `BaseStoreProvider`.
-3. Return `ProductRecord` objects from `iter_products`.
-4. Add the provider to `stores/__init__.py`.
-
-All providers normalize to:
-
-```python
-name, store, category, price_lkr, availability, warranty, image_url, product_url, last_updated
+```powershell
+npm run build
 ```
-
-## Favourites And Builds
-
-Favourites, notes, saved builds, manual matches, and build favourite status are stored in SQLite and persist after app restarts. Product refreshes update product rows by store + product URL/name and do not delete saved user data.
-
-## Multi-Vendor Items
-
-The app keeps each vendor listing as its own product row. If Nanotek and Game Street sell the same CPU, both records remain visible with their own price, availability, warranty, image URL, source URL, notes, and update time. The comparison and manual match features link similar listings without merging or deleting either vendor record.
-
-## Images
-
-Imports preserve `Image URL` when available. Scrapers prefer store page images. If an image is missing or fails a lightweight URL check, the app uses `static/img/placeholder.svg`. You can edit image URLs manually from a product note/manual import workflow.
-
-## Troubleshooting
-
-- If the app does not start, run `start_app.bat` from a Command Prompt so the error remains visible.
-- If imports fail, check that the workbook has a header row and a recognizable product name column.
-- If scraping returns few products, inspect the store pages and update selectors in the provider file.
-- If images do not load, the remote store may block hotlinking; import a reliable manufacturer image URL or leave the placeholder.

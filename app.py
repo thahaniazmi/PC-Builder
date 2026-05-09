@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Annotated
+from urllib.parse import urlencode
 
 import pandas as pd
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -60,6 +61,32 @@ BUILD_CATEGORY_ALIASES = {
     "Mice": ["Mice", "Keyboards / Mice"],
     "Headsets": ["Headsets", "Speakers & Headsets"],
 }
+CATEGORY_GROUP_ORDER = [
+    "Processors / CPUs",
+    "Motherboards",
+    "RAM",
+    "Graphics Cards / GPUs",
+    "SSDs / HDDs",
+    "Power Supplies",
+    "Casing",
+    "Coolers",
+    "Monitors",
+    "Keyboards / Mice",
+    "Audio",
+    "Games",
+    "Gaming Consoles",
+    "Controllers & Sim Gear",
+    "Accessories",
+    "Merchandise",
+    "Laptops",
+    "Prebuilt PCs",
+    "Networking & Cables",
+    "Printers & Projectors",
+    "Phones & Tablets",
+    "TV",
+    "Software",
+    "Other",
+]
 
 # FastAPI + SQLite keeps this app easy to run on Windows while still giving a
 # clean API boundary for future scrapers, imports, and richer frontend views.
@@ -169,6 +196,55 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
 
+def display_category(category: str | None) -> str:
+    value = (category or "Other").strip() or "Other"
+    text_value = value.lower()
+    exact = {
+        "processors / cpus",
+        "motherboards",
+        "ram",
+        "graphics cards / gpus",
+        "ssds / hdds",
+        "power supplies",
+        "casing",
+        "coolers",
+        "monitors",
+        "prebuilt pcs",
+    }
+    if text_value in exact:
+        return value
+    if "keyboard" in text_value or "mouse" in text_value or "mice" in text_value or "keycaps" in text_value or "switches" in text_value or "switch lube" in text_value or "switch puller" in text_value:
+        return "Keyboards / Mice"
+    if any(term in text_value for term in ["audio", "headphone", "headset", "speaker", "microphone", "amplifier", "sound bar", "radio", "earbuds", "in-ear", "on-ear", "over-ear"]):
+        return "Audio"
+    if any(term in text_value for term in ["video games", "playstation 4", "playstation 5", "switch", "xbox", "action", "rpg", "fps", "simulation", "sports", "strategy"]):
+        return "Games"
+    if "gaming consoles" in text_value or "console & handheld" in text_value or "nintendo" in text_value or "series x" in text_value or "series s" in text_value or "retro" in text_value:
+        return "Gaming Consoles"
+    if any(term in text_value for term in ["controller", "steering wheel", "wheel base", "pedal", "shifter", "flight simulator", "racing cockpit"]):
+        return "Controllers & Sim Gear"
+    if any(term in text_value for term in ["merchandise", "toys", "figurines", "wearables", "tableware", "posters", "collectibles", "keychains", "luggage", "backpacks", "mugs", "t-shirts", "badges", "pins", "blankets", "calendars"]):
+        return "Merchandise"
+    if "laptop" in text_value:
+        return "Laptops"
+    if any(term in text_value for term in ["cables", "adapters", "networking", "routers", "expansion cards"]):
+        return "Networking & Cables"
+    if "printer" in text_value or "projector" in text_value or "graphic tablet" in text_value:
+        return "Printers & Projectors"
+    if "mobile phones" in text_value or "phone accessories" in text_value or "tablet" in text_value or "apple" in text_value:
+        return "Phones & Tablets"
+    if "television" in text_value:
+        return "TV"
+    if "software" in text_value or text_value == "os & software":
+        return "Software"
+    if any(term in text_value for term in ["accessories", "charging dock", "covers", "grips", "skins", "stands", "mounts", "lights", "batteries", "travel bags", "webcams", "gift cards", "spare parts", "screen protectors", "virtual reality", "meta quest"]):
+        return "Accessories"
+    return value if value in CATEGORY_GROUP_ORDER else "Other"
+
+
+templates.env.globals["display_category"] = display_category
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -195,7 +271,29 @@ def init_db() -> None:
         if SOURCE_WORKBOOK.exists() and db.scalar(select(func.count(Product.id))) == 0:
             upsert_products(db, import_file(SOURCE_WORKBOOK))
         else:
+            repair_category_false_positives(db)
             collapse_same_store_duplicates(db)
+
+
+def repair_category_false_positives(db: Session) -> int:
+    changed = 0
+    memory_pattern = re.compile(r"\b(ddr[345]?|memory|ram|sodimm|so-dimm|\d+\s*gb\s+\d{3,5}\s*mhz)\b", re.I)
+    phone_accessory_pattern = re.compile(r"\b(cellphone|phone|iphone|ipad|tablet|mobile)\b", re.I)
+    poster_collectible_pattern = re.compile(r"\b(poster|framed|comic covers?|pop!)\b", re.I)
+
+    for product in db.scalars(select(Product).where(Product.category == "RAM")).all():
+        if not memory_pattern.search(product.name) and poster_collectible_pattern.search(product.name):
+            product.category = "Posters & Collectibles"
+            changed += 1
+
+    for product in db.scalars(select(Product).where(Product.category == "Casing")).all():
+        if phone_accessory_pattern.search(product.name):
+            product.category = "Phone Accessories"
+            changed += 1
+
+    if changed:
+        db.commit()
+    return changed
 
 
 def ensure_schema_columns() -> None:
@@ -266,6 +364,12 @@ def duplicate_preference_key(product: Product) -> tuple:
     )
 
 
+def same_store_duplicate_key(product: Product) -> str:
+    if product.product_url:
+        return f"url::{product.product_url.lower().strip()}"
+    return f"name::{product.category.lower()}::{clean_name(display_product_name(product))}"
+
+
 def merge_product_data(winner: Product, loser: Product) -> None:
     if not winner.previous_price_lkr and loser.previous_price_lkr:
         winner.previous_price_lkr = loser.previous_price_lkr
@@ -321,7 +425,7 @@ def collapse_same_store_duplicates(db: Session) -> int:
     products = db.scalars(select(Product)).all()
     grouped: dict[tuple[str, str], list[Product]] = {}
     for product in products:
-        key = product_model_key(product)
+        key = same_store_duplicate_key(product)
         if key:
             grouped.setdefault((product.store, key), []).append(product)
 
@@ -339,6 +443,11 @@ def collapse_same_store_duplicates(db: Session) -> int:
     if removed:
         db.commit()
     return removed
+
+
+VALID_SELECTION_METHODS = {"manual", "preferred_store"}
+VALID_ADMIN_STATUS_KINDS = {"import", "refresh"}
+VALID_ADMIN_STATUS_STATES = {"success", "failed"}
 
 
 def upsert_products(db: Session, records) -> int:
@@ -399,7 +508,7 @@ def product_query(db: Session, request: Request):
     if store := params.get("store"):
         stmt = stmt.where(Product.store == store)
     if category := params.get("category"):
-        stmt = stmt.where(Product.category == category)
+        stmt = stmt.where(Product.category.in_(category_filter_values(db, category)))
     if availability := params.get("availability"):
         stmt = stmt.where(Product.availability == availability)
     if params.get("fav") == "1":
@@ -420,11 +529,33 @@ def product_query(db: Session, request: Request):
 
 
 def filter_options(db: Session) -> dict:
+    raw_categories = db.scalars(select(Product.category).distinct()).all()
+    category_counts: dict[str, int] = {}
+    for category, count in db.execute(select(Product.category, func.count(Product.id)).group_by(Product.category)).all():
+        label = display_category(category)
+        category_counts[label] = category_counts.get(label, 0) + count
+    categories = sorted(
+        category_counts,
+        key=lambda label: (
+            CATEGORY_GROUP_ORDER.index(label) if label in CATEGORY_GROUP_ORDER else len(CATEGORY_GROUP_ORDER),
+            label,
+        ),
+    )
     return {
         "stores": db.scalars(select(Product.store).distinct().order_by(Product.store)).all(),
-        "categories": db.scalars(select(Product.category).distinct().order_by(Product.category)).all(),
+        "categories": categories,
+        "category_counts": category_counts,
+        "raw_categories": raw_categories,
         "availability": db.scalars(select(Product.availability).distinct().order_by(Product.availability)).all(),
     }
+
+
+def category_filter_values(db: Session, category: str) -> list[str]:
+    raw_categories = db.scalars(select(Product.category).distinct()).all()
+    grouped = [raw for raw in raw_categories if display_category(raw) == category]
+    if grouped:
+        return grouped
+    return [category]
 
 
 def product_model_key(product: Product) -> str:
@@ -586,14 +717,15 @@ def build_catalogue_card(offers: list[Product]) -> dict:
     return {
         "id": best_offer.id,
         "name": display_product_name(display_offer),
-        "category": best_offer.category,
+        "category": display_category(best_offer.category),
+        "raw_category": best_offer.category,
         "image_url": image_offer.image_url,
         "stock_status": stock_status,
         "best_offer": best_offer,
         "offers": offers,
         "stores": sorted({offer.store for offer in offers}),
         "last_updated": max((offer.last_updated for offer in offers if offer.last_updated), default=None),
-        "details": build_card_details(display_offer, best_offer, offers, best_offer.category, stock_status, image_offer.image_url),
+        "details": build_card_details(display_offer, best_offer, offers, display_category(best_offer.category), stock_status, image_offer.image_url),
     }
 
 
@@ -754,7 +886,9 @@ def product_details(product_id: int, db: Annotated[Session, Depends(get_db)]):
 @app.get("/favourites", response_class=HTMLResponse)
 def favourites(request: Request, db: Annotated[Session, Depends(get_db)]):
     products = db.scalars(select(Product).join(Favourite).order_by(Favourite.created_at.desc())).all()
-    return templates.TemplateResponse("favourites.html", {"request": request, "products": products})
+    favourite_ids = {product.id for product in products}
+    favourite_cards = [build_catalogue_card([product]) for product in products]
+    return templates.TemplateResponse("favourites.html", {"request": request, "product_cards": favourite_cards, "favourite_ids": favourite_ids})
 
 
 @app.get("/builds", response_class=HTMLResponse)
@@ -797,6 +931,8 @@ def add_offer_to_build(
     build_id: Annotated[str, Form()] = "",
     new_build_name: Annotated[str, Form()] = "",
 ):
+    if selection_method not in VALID_SELECTION_METHODS:
+        raise HTTPException(400, "Unsupported selection method")
     ids = [int(value) for value in offer_ids.split(",") if value.isdigit()]
     offers = db.scalars(select(Product).where(Product.id.in_(ids)).order_by(Product.store.asc())).all()
     if not offers:
@@ -839,7 +975,7 @@ def add_offer_to_build(
         raise HTTPException(404)
     slot_category = build_slot_for_offer(offer)
     build.selection_mode = selection_method
-    build.preferred_store = preferred_store if selection_method == "preferred_store" else build.preferred_store
+    build.preferred_store = preferred_store if selection_method == "preferred_store" else ""
     db.execute(delete(BuildItem).where(BuildItem.build_id == build.id, BuildItem.category == slot_category))
     db.add(
         BuildItem(
@@ -877,7 +1013,8 @@ async def update_build(build_id: int, request: Request, db: Annotated[Session, D
     form = await request.form()
     build.name = str(form.get("name") or build.name)
     build.budget_lkr = parse_lkr_price(form.get("budget_lkr"))
-    build.selection_mode = str(form.get("selection_mode") or "manual")
+    requested_mode = str(form.get("selection_mode") or "manual")
+    build.selection_mode = requested_mode if requested_mode in VALID_SELECTION_METHODS else "manual"
     build.preferred_store = str(form.get("preferred_store") or "")
     build.favourite = form.get("favourite") == "on"
     db.execute(delete(BuildItem).where(BuildItem.build_id == build.id))
@@ -897,7 +1034,7 @@ async def update_build(build_id: int, request: Request, db: Annotated[Session, D
                 selected_store=offer.store,
                 selected_price=offer.price_lkr,
                 selected_at=datetime.now(timezone.utc),
-                selection_method=build.selection_mode if build.selection_mode in {"manual", "preferred_store"} else "manual",
+                selection_method=build.selection_mode,
             )
         )
     db.commit()
@@ -951,8 +1088,28 @@ def export_build(build_id: int, fmt: str, db: Annotated[Session, Depends(get_db)
 
 
 @app.get("/compare", response_class=HTMLResponse)
-def compare(request: Request, db: Annotated[Session, Depends(get_db)], q: str = ""):
-    products = db.scalars(select(Product).where(Product.name.ilike(f"%{q}%")).limit(180) if q else select(Product).limit(160)).all()
+def compare(
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    q: str = "",
+    store: str = "",
+    category: str = "",
+    availability: str = "",
+    min_price: str = "",
+    max_price: str = "",
+):
+    stmt = select(Product)
+    if q:
+        stmt = stmt.where(Product.name.ilike(f"%{q}%"))
+    if category:
+        stmt = stmt.where(Product.category.in_(category_filter_values(db, category)))
+    if availability:
+        stmt = stmt.where(Product.availability == availability)
+    if parsed_min := parse_lkr_price(min_price):
+        stmt = stmt.where(Product.price_lkr >= parsed_min)
+    if parsed_max := parse_lkr_price(max_price):
+        stmt = stmt.where(Product.price_lkr <= parsed_max)
+    products = db.scalars(stmt.order_by(Product.price_lkr.asc().nullslast(), Product.store.asc()).limit(180 if q else 160)).all()
     pairs = []
     for i, left in enumerate(products):
         for right in products[i + 1 :]:
@@ -968,9 +1125,42 @@ def compare(request: Request, db: Annotated[Session, Depends(get_db)], q: str = 
                 )
             )
             if score >= 82 or manual:
-                pairs.append({"left": left, "right": right, "score": score, "manual": bool(manual), "cheaper": cheaper_id(left, right)})
+                if store and store not in {left.store, right.store}:
+                    continue
+                cheaper = cheaper_id(left, right)
+                price_diff = None
+                cheaper_store = ""
+                if left.price_lkr is not None and right.price_lkr is not None:
+                    price_diff = abs(left.price_lkr - right.price_lkr)
+                    if cheaper == left.id:
+                        cheaper_store = left.store
+                    elif cheaper == right.id:
+                        cheaper_store = right.store
+                rounded_score = int(round(score))
+                if manual or rounded_score >= 92:
+                    confidence = "High"
+                elif rounded_score >= 86:
+                    confidence = "Medium"
+                else:
+                    confidence = "Low"
+                pairs.append(
+                    {
+                        "left": left,
+                        "right": right,
+                        "score": rounded_score,
+                        "manual": bool(manual),
+                        "cheaper": cheaper,
+                        "price_diff": price_diff,
+                        "cheaper_store": cheaper_store,
+                        "confidence": confidence,
+                    }
+                )
     pairs = sorted(pairs, key=lambda p: p["score"], reverse=True)[:80]
-    return templates.TemplateResponse("compare.html", {"request": request, "pairs": pairs, "q": q})
+    groups = compare_groups(pairs)
+    return templates.TemplateResponse(
+        "compare.html",
+        {"request": request, "pairs": pairs, "groups": groups, "q": q, "options": filter_options(db)},
+    )
 
 
 @app.post("/compare/manual")
@@ -984,8 +1174,28 @@ def manual_match(product_a_id: Annotated[int, Form()], product_b_id: Annotated[i
 
 
 @app.get("/admin", response_class=HTMLResponse)
-def admin(request: Request):
-    return templates.TemplateResponse("admin.html", {"request": request, "providers": PROVIDERS.keys()})
+def admin(request: Request, db: Annotated[Session, Depends(get_db)]):
+    provider_names = list(PROVIDERS.keys())
+    status_kind = request.query_params.get("kind", "")
+    status_subject = request.query_params.get("subject", "")
+    status_state = request.query_params.get("state", "")
+    status_message = request.query_params.get("message", "")
+    if status_kind not in VALID_ADMIN_STATUS_KINDS:
+        status_kind = ""
+    if status_state not in VALID_ADMIN_STATUS_STATES:
+        status_state = ""
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "providers": provider_names,
+            "duplicate_count": probable_duplicate_count(db),
+            "status_kind": status_kind,
+            "status_subject": status_subject,
+            "status_state": status_state,
+            "status_message": status_message,
+        },
+    )
 
 
 @app.get("/admin/duplicates", response_class=HTMLResponse)
@@ -1032,13 +1242,36 @@ def save_duplicate_decision(
 
 @app.post("/admin/import")
 async def import_products(request: Request, file: Annotated[UploadFile, File()], db: Annotated[Session, Depends(get_db)]):
-    suffix = Path(file.filename or "").suffix or ".csv"
-    with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(await file.read())
-        tmp_path = Path(tmp.name)
-    count = upsert_products(db, import_file(tmp_path))
-    tmp_path.unlink(missing_ok=True)
-    return templates.TemplateResponse("admin_result.html", {"request": request, "message": f"Imported or updated {count} products."})
+    filename = file.filename or "upload"
+    tmp_path: Path | None = None
+    try:
+        suffix = Path(filename).suffix or ".csv"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(await file.read())
+            tmp_path = Path(tmp.name)
+        count = upsert_products(db, import_file(tmp_path))
+        query = urlencode(
+            {
+                "kind": "import",
+                "subject": filename,
+                "state": "success",
+                "message": f"Imported or updated {count} products.",
+            }
+        )
+    except Exception as exc:
+        db.rollback()
+        query = urlencode(
+            {
+                "kind": "import",
+                "subject": filename,
+                "state": "failed",
+                "message": f"Import failed: {exc}",
+            }
+        )
+    finally:
+        if tmp_path:
+            tmp_path.unlink(missing_ok=True)
+    return RedirectResponse(f"/admin?{query}", status_code=303)
 
 
 @app.post("/admin/refresh/{provider_name}")
@@ -1046,23 +1279,49 @@ def refresh_provider(provider_name: str, request: Request, db: Annotated[Session
     provider_cls = PROVIDERS.get(provider_name)
     if not provider_cls:
         raise HTTPException(404)
-    count = upsert_products(db, provider_cls().iter_products(limit=300))
-    return templates.TemplateResponse("admin_result.html", {"request": request, "message": f"Refreshed {count} products from {provider_cls.store_name}."})
+    try:
+        count = upsert_products(db, provider_cls().iter_products(limit=300))
+        query = urlencode(
+            {
+                "kind": "refresh",
+                "subject": provider_name,
+                "state": "success",
+                "message": f"Refreshed {count} products from {provider_cls.store_name}.",
+            }
+        )
+    except Exception as exc:
+        db.rollback()
+        query = urlencode(
+            {
+                "kind": "refresh",
+                "subject": provider_name,
+                "state": "failed",
+                "message": f"Refresh failed for {provider_name}: {exc}",
+            }
+        )
+    return RedirectResponse(f"/admin?{query}", status_code=303)
 
 
 @app.get("/suggestions", response_class=HTMLResponse)
-def suggestions(request: Request, db: Annotated[Session, Depends(get_db)], budget: int = 250000):
+def suggestions(request: Request, db: Annotated[Session, Depends(get_db)]):
     best_value = []
-    for category in db.scalars(select(Product.category).distinct()).all():
+    for category in BUILD_CATEGORIES:
+        category_names = BUILD_CATEGORY_ALIASES.get(category, [category])
         item = db.scalar(
             select(Product)
-            .where(Product.category == category, Product.price_lkr.is_not(None), Product.availability.ilike("%stock%"))
+            .where(Product.category.in_(category_names), Product.price_lkr.is_not(None), Product.availability.ilike("%stock%"))
             .order_by(Product.price_lkr.asc())
         )
         if item:
             best_value.append(item)
-    build = cheapest_build(db, budget)
-    return templates.TemplateResponse("suggestions.html", {"request": request, "best_value": best_value, "build": build, "budget": budget})
+    return templates.TemplateResponse(
+        "suggestions.html",
+        {
+            "request": request,
+            "best_value": best_value,
+            "market_news": market_news(),
+        },
+    )
 
 
 def clean_name(name: str) -> str:
@@ -1073,6 +1332,73 @@ def cheaper_id(left: Product, right: Product) -> int | None:
     if left.price_lkr is None or right.price_lkr is None:
         return None
     return left.id if left.price_lkr <= right.price_lkr else right.id
+
+
+def compare_groups(pairs: list[dict]) -> list[dict]:
+    parent: dict[int, int] = {}
+    products: dict[int, Product] = {}
+    scores: dict[tuple[int, int], int] = {}
+    manual_ids: set[tuple[int, int]] = set()
+
+    def find(product_id: int) -> int:
+        parent.setdefault(product_id, product_id)
+        while parent[product_id] != product_id:
+            parent[product_id] = parent[parent[product_id]]
+            product_id = parent[product_id]
+        return product_id
+
+    def union(left_id: int, right_id: int) -> None:
+        parent[find(right_id)] = find(left_id)
+
+    for pair in pairs:
+        left = pair["left"]
+        right = pair["right"]
+        products[left.id] = left
+        products[right.id] = right
+        key = tuple(sorted((left.id, right.id)))
+        scores[key] = max(scores.get(key, 0), int(pair["score"]))
+        if pair["manual"]:
+            manual_ids.add(key)
+        union(left.id, right.id)
+
+    grouped: dict[int, list[Product]] = {}
+    for product in products.values():
+        grouped.setdefault(find(product.id), []).append(product)
+
+    results = []
+    for offers in grouped.values():
+        offers = sorted(offers, key=lambda item: (item.price_lkr is None, item.price_lkr or 10**12, item.store, item.name))
+        priced = [offer.price_lkr for offer in offers if offer.price_lkr is not None]
+        best_price = min(priced) if priced else None
+        best_id = next((offer.id for offer in offers if offer.price_lkr == best_price), None)
+        group_scores = [
+            score
+            for key, score in scores.items()
+            if key[0] in {offer.id for offer in offers} and key[1] in {offer.id for offer in offers}
+        ]
+        rows = []
+        for offer in offers:
+            rows.append(
+                {
+                    "product": offer,
+                    "is_best": offer.id == best_id,
+                    "diff": None if best_price is None or offer.price_lkr is None else offer.price_lkr - best_price,
+                }
+            )
+        results.append(
+            {
+                "name": display_product_name(offers[0]),
+                "category": offers[0].category,
+                "rows": rows,
+                "score": max(group_scores or [0]),
+                "manual": any(
+                    key[0] in {offer.id for offer in offers} and key[1] in {offer.id for offer in offers}
+                    for key in manual_ids
+                ),
+                "best_price": best_price,
+            }
+        )
+    return sorted(results, key=lambda group: (group["best_price"] is None, group["best_price"] or 10**12, group["name"]))[:40]
 
 
 def discount_label(previous_price: int | None, current_price: int | None) -> str:
@@ -1114,6 +1440,84 @@ def compatibility_warnings(products: list[Product]) -> list[str]:
     if gpu_price > 150000 and watts and watts < 650:
         warnings.append("High-end GPU with PSU under 650W. Check vendor wattage recommendation.")
     return warnings or ["No obvious compatibility warnings from available listing text. Manual confirmation still recommended."]
+
+
+def market_news() -> list[dict]:
+    return [
+        {
+            "category": "RAM",
+            "headline": "DDR5 spot prices eased, but RAM is still not normal",
+            "summary": "DDR5 spot pricing reportedly fell nearly 30% after the big 2025-2026 spike, but contract memory pricing is still expected to rise sharply in Q2. Treat small dips as relief, not a full crash.",
+            "tone": "warn",
+            "date": "April 2026",
+            "sources": [
+                {"label": "TechSpot", "url": "https://www.techspot.com/news/112030-memory-prices-finally-falling-but-ram-remain-unaffordable.html"},
+            ],
+        },
+        {
+            "category": "Motherboards",
+            "headline": "Motherboard demand is getting hit by the memory crisis",
+            "summary": "Reports say motherboard shipments have fallen hard because expensive RAM is discouraging new PC builds. If RAM suddenly becomes affordable again, board demand could bounce and create new shortages.",
+            "tone": "warn",
+            "date": "May 2026",
+            "sources": [
+                {"label": "Tom's Hardware", "url": "https://www.tomshardware.com/pc-components/motherboards/motherboard-sales-collapse-by-more-than-25-percent-as-chipmakers-strangle-enthusiast-pc-market-to-build-more-ai-chips-asus-projected-to-sell-5-million-fewer-boards-in-2025-gigabyte-msi-and-asrock-also-expected-to-see-reduced-sales-numbers"},
+            ],
+        },
+        {
+            "category": "GPU",
+            "headline": "Several RTX 50 cards are still above sensible pricing",
+            "summary": "Current price tracking shows RTX 5060 Ti 16GB, RTX 5070, RTX 5070 Ti, and RTX 5080 prices have moved up, while RTX 5090 stock is scarce and heavily marked up.",
+            "tone": "danger",
+            "date": "May 2026",
+            "sources": [
+                {"label": "PC Gamer", "url": "https://www.pcgamer.com/hardware/graphics-cards/graphics-card-price-watch-deals/"},
+            ],
+        },
+        {
+            "category": "Nvidia",
+            "headline": "No major new desktop RTX launch signal yet",
+            "summary": "Recent coverage points to no broad new RTX desktop GPU family or Super refresh in 2026. Nvidia's only fresh consumer-GPU note appears to be a minor RTX 5070 laptop variant.",
+            "tone": "neutral",
+            "date": "May 2026",
+            "sources": [
+                {"label": "PCWorld", "url": "https://www.pcworld.com/article/3125546/nvidias-new-rtx-gpu-reveal-was-a-paragraph-in-a-driver-release.html"},
+                {"label": "Tom's Hardware", "url": "https://www.tomshardware.com/pc-components/gpus/report-claims-nvidia-will-not-be-releasing-any-new-rtx-gaming-gpus-in-2026-rtx-60-series-likely-debuting-in-2028"},
+            ],
+        },
+        {
+            "category": "AMD",
+            "headline": "AMD warns component costs may rise later this year",
+            "summary": "AMD's latest comments point to higher memory and component costs later in 2026, which could pressure Radeon pricing and availability in Q3 and Q4.",
+            "tone": "warn",
+            "date": "May 2026",
+            "sources": [
+                {"label": "TechRadar", "url": "https://www.techradar.com/computing/computing-components/amds-ceo-predicts-higher-memory-and-component-costs-later-this-year-so-brace-yourself-for-radeon-gpu-price-hikes"},
+            ],
+        },
+    ]
+
+
+def probable_duplicate_count(db: Session, limit: int = 180) -> int:
+    products = db.scalars(select(Product).limit(limit)).all()
+    decided = {
+        tuple(sorted((row.product_a_id, row.product_b_id)))
+        for row in db.scalars(select(DuplicateDecision)).all()
+    }
+    count = 0
+    for i, left in enumerate(products):
+        for right in products[i + 1 :]:
+            if left.store == right.store or left.category != right.category:
+                continue
+            key = tuple(sorted((left.id, right.id)))
+            if key in decided:
+                continue
+            if product_model_key(left) == product_model_key(right):
+                continue
+            score = fuzz.token_sort_ratio(clean_name(left.name), clean_name(right.name))
+            if 82 <= score < 97:
+                count += 1
+    return count
 
 
 init_db()

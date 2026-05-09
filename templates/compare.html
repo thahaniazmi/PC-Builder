@@ -1,42 +1,129 @@
 {% extends "base.html" %}
+{% import "components.html" as ui %}
 {% block content %}
-<section class="page-hero">
+<section class="page-hero compare-hero">
   <div>
     <p class="eyebrow">Cross-store matching</p>
     <h1>Compare</h1>
-    <p class="hero-copy">Find similar listings and highlight the lower priced vendor option.</p>
+    <p class="hero-copy">Find likely same-product listings and spot the lower priced store offer.</p>
   </div>
 </section>
 
-<form class="filters filter-bar">
-  <label class="field search-field">
-    <span class="field-icon">S</span>
-    <input name="q" value="{{ q }}" placeholder="Search RTX, Ryzen, F75...">
-  </label>
-  <button class="primary-btn">Find matches</button>
-  <a class="ghost-btn" href="/compare">Reset</a>
-</form>
+<div class="compare-shell">
+  <form class="compare-search-card" method="get">
+    <div class="compare-search-row">
+      <label class="field search-field compare-query">
+        <span class="field-label">Search</span>
+        <span class="field-icon" aria-hidden="true"></span>
+        <input name="q" value="{{ request.query_params.get('q','') }}" placeholder="Search RTX 4060, Ryzen 5, B650...">
+      </label>
+      <button class="primary-btn compare-action">Find matches</button>
+      <a class="ghost-btn compare-action" href="/compare">Reset</a>
+    </div>
 
-<section class="list">
-  {% for pair in pairs %}
-  <article class="compare-row">
-    {% for p in [pair.left, pair.right] %}
-    <div class="{% if pair.cheaper == p.id %}cheaper{% endif %}">
-      <h3>{{ p.name }}</h3>
-      <p class="muted">{{ p.store }} - {{ p.category }}</p>
-      <p class="price">LKR {{ "{:,}".format(p.price_lkr or 0) }}</p>
-      <p>{{ p.availability }}{% if p.warranty %} - {{ p.warranty }}{% endif %}</p>
-      {% if p.product_url %}<a class="primary-link" href="{{ p.product_url }}" target="_blank">View details</a>{% endif %}
+    <div class="compare-filter-grid">
+      <label class="field">
+        <span class="field-label">Store</span>
+        <select name="store">
+          <option value="">All stores</option>
+          {% for item in options.stores %}
+          <option value="{{ item }}" {% if request.query_params.get('store') == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Category</span>
+        <select name="category">
+          <option value="">All categories</option>
+          {% for item in options.categories %}
+          <option value="{{ item }}" {% if request.query_params.get('category') == item %}selected{% endif %}>{{ item }}{% if options.category_counts %} ({{ options.category_counts[item] }}){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Stock</span>
+        <select name="availability">
+          <option value="">Any stock</option>
+          {% for item in options.availability %}
+          <option value="{{ item }}" {% if request.query_params.get('availability') == item %}selected{% endif %}>{{ item }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Min price</span>
+        <input name="min_price" inputmode="numeric" placeholder="LKR" value="{{ request.query_params.get('min_price','') }}">
+      </label>
+      <label class="field">
+        <span class="field-label">Max price</span>
+        <input name="max_price" inputmode="numeric" placeholder="LKR" value="{{ request.query_params.get('max_price','') }}">
+      </label>
+    </div>
+  </form>
+
+  <section class="compare-results">
+    {% for pair in pairs %}
+    <article class="compare-match-card">
+      <div class="compare-match-head">
+        <div>
+          <p class="compare-group-kicker">{{ display_category(pair.left.category) }}</p>
+          <h2 title="{{ pair.left.name }}">{{ pair.left.name }}</h2>
+        </div>
+        <div class="compare-match-badges">
+          <span class="confidence-badge confidence-{{ pair.confidence|lower }}">{{ pair.confidence }}</span>
+          <span class="compare-score-pill">{{ pair.score }}% match{% if pair.manual %} · manual{% endif %}</span>
+        </div>
+      </div>
+
+      <div class="compare-vs-grid">
+        {% for p in [pair.left, pair.right] %}
+        <section class="compare-mini-card {% if pair.cheaper == p.id %}compare-lower-card{% endif %}">
+          {% if pair.cheaper == p.id %}
+          <span class="lower-badge">Lower price</span>
+          {% endif %}
+          {{ ui.product_image(p.image_url, p.name, p.category, "compare-thumb") }}
+          <div class="compare-mini-body">
+            <h3 title="{{ p.name }}">{{ p.name }}</h3>
+            <div class="compare-key-meta">
+              <span>{{ p.store }}</span>
+              <span>{{ display_category(p.category) }}</span>
+            </div>
+            <div class="compare-facts">
+              <strong>{% if p.price_lkr %}LKR {{ "{:,}".format(p.price_lkr) }}{% else %}Ask store{% endif %}</strong>
+              <span class="stock-badge {{ ui.stock_class(p.availability) }}">{{ p.availability or "Unknown" }}</span>
+              {% if p.warranty %}<span class="warranty-chip">{{ p.warranty }}</span>{% endif %}
+            </div>
+          </div>
+          <button class="primary-link compact" type="button" data-modal-open data-details-id="{{ p.id }}">View details</button>
+        </section>
+        {% endfor %}
+
+        <div class="vs-divider" aria-hidden="true">vs</div>
+      </div>
+
+      <p class="compare-diff-summary">
+        {% if pair.price_diff is none %}
+          Price difference unavailable because one listing has no price.
+        {% elif pair.price_diff == 0 %}
+          Both stores show the same listed price.
+        {% else %}
+          {{ pair.cheaper_store }} is LKR {{ "{:,}".format(pair.price_diff) }} cheaper.
+        {% endif %}
+      </p>
+    </article>
+    {% else %}
+    <div class="empty-state compare-empty">
+      <div class="empty-icon">CMP</div>
+      <h2>No likely matches yet</h2>
+      <p>Search for a model family or product code, then narrow by store, category, stock, or price.</p>
+      <div class="example-searches">
+        {% for term in ["RTX 4060", "Ryzen 5", "B650"] %}
+        <a class="ghost-btn compact" href="/compare?q={{ term|urlencode }}">{{ term }}</a>
+        {% endfor %}
+      </div>
     </div>
     {% endfor %}
-    <span class="score">{{ pair.score }}% match{% if pair.manual %} - manual{% endif %}</span>
-  </article>
-  {% else %}
-  <div class="empty-state">
-    <div class="empty-icon">CP</div>
-    <h2>No likely matches</h2>
-    <p>Try searching for a specific model family or product code.</p>
-  </div>
-  {% endfor %}
-</section>
+  </section>
+</div>
+
+{{ ui.product_details_modal() }}
 {% endblock %}

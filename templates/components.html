@@ -90,7 +90,7 @@
     </label>
     <label class="field field-wide">
       <span class="field-label">Category</span>
-      <select name="category"><option value="">All categories</option>{% for c in options.categories %}<option value="{{ c }}" {% if request.query_params.get('category')==c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+      <select name="category"><option value="">All categories</option>{% for c in options.categories %}<option value="{{ c }}" {% if request.query_params.get('category')==c %}selected{% endif %}>{{ c }}{% if options.category_counts %} ({{ options.category_counts[c] }}){% endif %}</option>{% endfor %}</select>
     </label>
     <label class="field">
       <span class="field-label">Stock</span>
@@ -124,8 +124,8 @@
 </form>
 {%- endmacro %}
 
-{% macro product_card(card, favourite_ids) -%}
-<article class="product-card">
+{% macro product_card(card, favourite_ids, show_unfavourite=false) -%}
+<article class="product-card" data-product-card data-product-id="{{ card.id }}">
   <div class="product-card-media">
     {{ product_image(card.image_url, card.name, card.category) }}
     <button class="fav {% if card.id in favourite_ids %}active{% endif %}" data-fav="{{ card.id }}" aria-label="Toggle favourite">
@@ -144,8 +144,13 @@
       <span class="price-label">Starting price</span>
       <p class="price">{% if card.best_offer.price_lkr %}LKR {{ "{:,}".format(card.best_offer.price_lkr) }}{% else %}Price not listed{% endif %}</p>
     </div>
-    {{ price_list(card.offers, card.best_offer.id, 3, false) }}
-    <div class="card-actions">
+    <div class="product-body-main">
+      {{ price_list(card.offers, card.best_offer.id, 3, false) }}
+    </div>
+    <div class="card-actions {% if show_unfavourite %}favourite-actions{% endif %}">
+      {% if show_unfavourite %}
+      <button class="ghost-btn compact unfavourite-btn active" type="button" data-fav="{{ card.id }}">Unfavourite</button>
+      {% endif %}
       <a class="ghost-btn compact" href="/builds/add-offer?offer_ids={{ card.details.offer_ids }}">Add to build</a>
       <a class="ghost-btn compact" href="/compare?q={{ card.details.compare_query }}">Compare</a>
       <button class="primary-link compact" type="button" data-modal-open data-details-id="{{ card.id }}">View details</button>

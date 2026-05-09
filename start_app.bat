@@ -2,15 +2,29 @@
 setlocal
 cd /d "%~dp0"
 
-if not exist ".venv\Scripts\python.exe" (
-    py -3 -m venv .venv
+where node >nul 2>nul
+if errorlevel 1 (
+  echo Node.js is required to run PC Builder.
+  pause
+  exit /b 1
 )
 
-call ".venv\Scripts\activate.bat"
-python -m pip install --upgrade pip
-pip install -r requirements.txt
+if not exist node_modules (
+  echo Installing app dependencies...
+  call npm install
+  if errorlevel 1 (
+    echo Dependency install failed.
+    pause
+    exit /b 1
+  )
+)
 
-python scripts\init_db.py
+echo Starting PC Builder API on http://127.0.0.1:3001
+start "PC Builder API" cmd /k "cd /d ""%~dp0"" && npm run server"
 
-start "" http://localhost:8000
-uvicorn app:app --host 127.0.0.1 --port 8000 --reload
+echo Starting PC Builder frontend on http://127.0.0.1:5173
+start "PC Builder Frontend" cmd /k "cd /d ""%~dp0"" && npm run client"
+
+timeout /t 2 >nul
+start http://127.0.0.1:5173
+endlocal

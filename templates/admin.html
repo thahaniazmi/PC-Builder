@@ -1,36 +1,103 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-hero">
+<section class="page-hero admin-hero">
   <div>
     <p class="eyebrow">Data operations</p>
     <h1>Admin</h1>
-    <p class="hero-copy">Import spreadsheets or refresh modular store providers.</p>
+    <p class="hero-copy">Import supplier data, refresh store feeds, and review uncertain duplicate matches.</p>
   </div>
 </section>
 
-<section class="panel">
-  <h2>Import CSV or Excel</h2>
-  <form method="post" action="/admin/import" enctype="multipart/form-data" class="inline">
-    <input type="file" name="file" accept=".csv,.xlsx,.xls" required>
-    <button class="primary-btn">Import</button>
-  </form>
-</section>
+<div class="admin-shell">
+  {% if status_message %}
+  <section class="admin-banner admin-banner-{{ status_state or 'idle' }}">
+    <div class="admin-banner-copy">
+      <span class="admin-kicker">{{ status_kind|default('status')|title }}</span>
+      <strong>{{ status_message }}</strong>
+      {% if status_subject %}<small>{{ status_subject }}</small>{% endif %}
+    </div>
+    <a class="ghost-btn compact" href="/admin">Clear</a>
+  </section>
+  {% endif %}
 
-<section class="panel">
-  <h2>Refresh Store Providers</h2>
-  <div class="inline">
-    {% for provider in providers %}
-    <form method="post" action="/admin/refresh/{{ provider }}">
-      <button class="ghost-btn">Refresh {{ provider }}</button>
-    </form>
-    {% endfor %}
-  </div>
-  <p class="muted">Scrapers are conservative and selectors may need updates when store pages change.</p>
-</section>
+  <section class="admin-grid">
+    <article class="admin-card admin-card-import">
+      <div class="admin-card-head">
+        <div>
+          <p class="admin-kicker">Import</p>
+          <h2>CSV or Excel</h2>
+        </div>
+        <span class="admin-status {% if status_kind == 'import' and status_state %}status-{{ status_state }}{% else %}status-idle{% endif %}">
+          {% if status_kind == 'import' and status_state %}{{ status_state|title }}{% else %}Idle{% endif %}
+        </span>
+      </div>
+      <p class="admin-card-copy">Upload a workbook or CSV to insert or update product records.</p>
+      <form method="post" action="/admin/import" enctype="multipart/form-data" class="admin-import-form" data-admin-import-form>
+        <label class="upload-box" for="admin-file">
+          <input id="admin-file" type="file" name="file" accept=".csv,.xlsx,.xls" required data-admin-file>
+          <span class="upload-title">Choose CSV or Excel file</span>
+          <span class="upload-meta" data-admin-file-name>No file selected</span>
+        </label>
+        <button class="primary-btn" data-admin-submit>Import file</button>
+      </form>
+      <p class="admin-action-status">
+        {% if status_kind == 'import' and status_message %}
+          {{ status_message }}
+        {% else %}
+          Waiting for upload.
+        {% endif %}
+      </p>
+    </article>
 
-<section class="panel">
-  <h2>Duplicate Review</h2>
-  <p class="muted">Review uncertain matches before deciding whether two vendor listings are the same product, separate products, or a different variation.</p>
-  <a class="primary-btn" href="/admin/duplicates">Open duplicate review</a>
-</section>
+    <article class="admin-card admin-card-review">
+      <div class="admin-card-head">
+        <div>
+          <p class="admin-kicker">Review</p>
+          <h2>Duplicate Review</h2>
+        </div>
+        <span class="count-pill">{{ duplicate_count }}</span>
+      </div>
+      <p class="admin-card-copy">Review likely cross-store matches before grouping listings. Keep variants such as tray, boxed, Ti, capacity, or VRAM separate.</p>
+      <div class="admin-review-meta">
+        <span class="admin-status status-idle">{{ duplicate_count }} possible duplicates</span>
+      </div>
+      <a class="primary-btn admin-cta" href="/admin/duplicates">Open duplicate review</a>
+    </article>
+  </section>
+
+  <section class="admin-card">
+    <div class="admin-card-head">
+      <div>
+        <p class="admin-kicker">Refresh</p>
+        <h2>Store Providers</h2>
+      </div>
+    </div>
+    <p class="admin-card-copy">Run a provider refresh to pull the latest listings. Failures usually mean the store markup changed.</p>
+    <div class="provider-grid">
+      {% for provider in providers %}
+      <article class="provider-card {% if status_kind == 'refresh' and status_subject == provider and status_state %}provider-card-{{ status_state }}{% endif %}" data-provider-card="{{ provider }}">
+        <div class="provider-card-top">
+          <div>
+            <h3>{{ provider }}</h3>
+            <p class="provider-subtitle">Live listing refresh</p>
+          </div>
+          <span class="admin-status {% if status_kind == 'refresh' and status_subject == provider and status_state %}status-{{ status_state }}{% else %}status-idle{% endif %}" data-provider-status>
+            {% if status_kind == 'refresh' and status_subject == provider and status_state %}{{ status_state|title }}{% else %}Idle{% endif %}
+          </span>
+        </div>
+        <form method="post" action="/admin/refresh/{{ provider }}" data-provider-form>
+          <button class="ghost-btn provider-btn" data-provider-submit>Refresh {{ provider }}</button>
+        </form>
+        <p class="provider-status-copy" data-provider-copy>
+          {% if status_kind == 'refresh' and status_subject == provider and status_message %}
+            {{ status_message }}
+          {% else %}
+            Ready to run.
+          {% endif %}
+        </p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+</div>
 {% endblock %}

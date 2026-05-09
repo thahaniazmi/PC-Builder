@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="page-hero">
-  <div>
+<section class="page-hero duplicate-hero">
+  <div class="hero-copy-block">
     <p class="eyebrow">Admin review</p>
     <h1>Duplicate Review</h1>
     <p class="hero-copy">Review uncertain cross-store matches. Variations like Ti, X, Pro, capacity, VRAM, tray, or boxed should stay separate.</p>
@@ -9,22 +9,24 @@
   <a class="hero-action" href="/admin">Back to admin</a>
 </section>
 
-<form class="filters filter-bar">
+<form class="duplicate-search-panel">
   <label class="field search-field">
-    <span class="field-icon">S</span>
+    <span class="field-icon" aria-hidden="true"></span>
     <input name="q" value="{{ q }}" placeholder="Search model family">
   </label>
-  <button class="primary-btn">Find candidates</button>
-  <a class="ghost-btn" href="/admin/duplicates">Reset</a>
+  <div class="duplicate-search-actions">
+    <button class="primary-btn">Find candidates</button>
+    <a class="ghost-btn" href="/admin/duplicates">Reset</a>
+  </div>
 </form>
 
-<section class="list">
+<section class="list duplicate-review-list">
   {% for item in candidates %}
   <article class="compare-row">
     {% for p in [item.left, item.right] %}
     <div>
       <h3>{{ p.name }}</h3>
-      <p class="muted">{{ p.store }} - {{ p.category }}</p>
+      <p class="muted">{{ p.store }} - {{ display_category(p.category) }}</p>
       <p class="price">{% if p.price_lkr %}LKR {{ "{:,}".format(p.price_lkr) }}{% else %}Ask store{% endif %}</p>
       <p>{{ p.availability or "Unknown" }}</p>
     </div>
@@ -42,7 +44,7 @@
     </div>
   </article>
   {% else %}
-  <div class="empty-state">
+  <div class="empty-state duplicate-empty-state">
     <div class="empty-icon">DR</div>
     <h2>No uncertain duplicates</h2>
     <p>Try searching for a specific model family if you want to review a narrower set.</p>

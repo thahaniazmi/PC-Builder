@@ -4,3 +4,5 @@ __pycache__/
 
 data/*.sqlite3
 data/live_price_check.csv
+node_modules/
+dist/
